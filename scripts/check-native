@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""Exercise actual Wayland surfaces on a disposable workspace, then restore focus."""
+import json
+import base64
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from core.session import environment, hypr, dispatch
+sys.path.insert(0, str(ROOT / 'tests/native'))
+from pointer import Pointer
+
+
+def main():
+    evidence = ROOT / ".test-output" / ("native-" + str(int(time.time())))
+    evidence.mkdir(parents=True)
+    for name, source in {"Commons":Path("/usr/share/omarchy/shell/Commons"), "Ui":Path("/usr/share/omarchy/shell/Ui"), "Notes":ROOT}.items():
+        (evidence / name).symlink_to(source)
+    (evidence / "shell.qml").write_text((ROOT / "tests/native/shell.qml").read_text())
+    env = environment()
+    env["PANEL_NOTES_ROOT"] = str(evidence / "collection")
+    env["PANEL_NOTES_RECOVERY"] = str(evidence / "recovery")
+    env['PANEL_NOTES_EXTENSIONS'] = str(ROOT / 'examples')
+    original = hypr("activeworkspace")
+    original_window = hypr("activewindow").get("address")
+    original_cursor = hypr("cursorpos")
+    workspace = "name:panel-notes-test-" + str(os.getpid())
+    def ipc(method, *args):
+        result = subprocess.run(["qs", "ipc", "-p", str(evidence), "call", "test", method, *args], env=env, capture_output=True, text=True, timeout=5)
+        if result.returncode:
+            raise RuntimeError(result.stderr or result.stdout)
+        return result.stdout.strip()
+    def state(): return json.loads(ipc("state"))
+    def wait(predicate, message, seconds=6):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            try:
+                value = predicate()
+                if value: return value
+            except (ValueError, RuntimeError):
+                pass
+            time.sleep(.12)
+        raise AssertionError(message + ": " + ipc("state"))
+    def check(condition, message):
+        if not condition: raise AssertionError(message)
+        results.append(message)
+        print("PASS " + message, flush=True)
+    results = []
+    process = None
+    pointer = Pointer()
+    try:
+        dispatch("focus", workspace=workspace)
+        log = (evidence / "native.log").open("w")
+        process = subprocess.Popen(["qs", "-p", str(evidence), "--no-color"], env=env, stdout=log, stderr=log)
+        def windows(): return {w["title"]:w for w in hypr("clients") if w["pid"] == process.pid}
+        wait(lambda: len(windows()) == 2, "Two test windows did not appear")
+        first = windows()["Panel Notes native source"]
+        second = windows()["Panel Notes native neighbor"]
+        dispatch("focus", window="address:" + first["address"])
+        ipc("open", first["address"])
+        wait(lambda: state()["panel"]["opened"] and state()["panel"]["noteId"], "Panel did not open")
+        time.sleep(.35)
+        subprocess.run(["wtype", "Native note survives"], env=env, timeout=4, check=True)
+        wait(lambda: state()["text"] == "Native note survives" and state()["panel"]["status"] == "Saved", "Keyboard did not reach notes")
+        check(True, "Shortcut opening gives notes keyboard focus and saves to disk")
+        note_id = state()["panel"]["noteId"]
+        check(state()["width"] == first["size"][0] and state()["height"] == first["size"][1], "Panel matches the source window's logical size")
+        second = windows()["Panel Notes native neighbor"]
+        dispatch("cursor.move", x=second["at"][0]+120, y=second["at"][1]+120)
+        pointer.click()
+        subprocess.run(["wtype", "Neighbor receives input"], env=env, timeout=4, check=True)
+        wait(lambda: "Neighbor receives input" in state()["neighbor"], "Adjacent app did not receive input")
+        check(state()["panel"]["opened"] and state()["text"] == "Native note survives", "Using adjacent app retains visible notes and their source")
+        check(state()["clicks"] == 1, "The first outside click reaches the neighboring app")
+        ipc("open", first["address"])
+        time.sleep(.3)
+        subprocess.run(["wtype", "Returned. "], env=env, timeout=4, check=True)
+        wait(lambda: 'Returned. ' in state()['text'] and state()['panel']['status'] == 'Saved', 'Reopening did not regain input focus')
+        check(True, 'Explicit re-entry regains notes keyboard focus')
+        pasted_image = False
+        clipboard_types = subprocess.run(['wl-paste','--list-types'],env=env,capture_output=True).stdout.decode().splitlines()
+        text_types = {'UTF8_STRING','TEXT','STRING','text/plain','text/plain;charset=utf-8'}
+        if not clipboard_types or set(clipboard_types).issubset(text_types):
+            original_text = subprocess.run(['wl-paste','--no-newline'],env=env,capture_output=True).stdout
+            try:
+                png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aP1sAAAAASUVORK5CYII=')
+                subprocess.run(['wl-copy','--type','image/png'],input=png,env=env,check=True,timeout=3)
+                subprocess.run(['wtype','-M','ctrl','-k','v','-m','ctrl'],env=env,check=True,timeout=3)
+                wait(lambda:'![Image]' in state()['text'] and state()['panel']['status']=='Saved','Clipboard image paste failed')
+                pasted_image = True
+                check(True,'Native Ctrl+V imports a clipboard image and saves its relative Markdown link')
+            finally:
+                if clipboard_types: subprocess.run(['wl-copy'],input=original_text,env=env,check=True,timeout=3)
+                else: subprocess.run(['wl-copy','--clear'],env=env,check=True,timeout=3)
+        def key(*keys):
+            subprocess.run(['wtype', *keys], env=env, check=True, timeout=3)
+            time.sleep(.15)
+        key('-M','ctrl','-M','shift','-k','p','-m','shift','-m','ctrl')
+        wait(lambda:state()['panel']['preview'],'Preview shortcut did not activate')
+        key('-M','ctrl','-M','shift','-k','p','-m','shift','-m','ctrl')
+        wait(lambda:not state()['panel']['preview'],'Edit shortcut did not activate')
+        key('-M','ctrl','-k','comma','-m','ctrl')
+        wait(lambda:state()['panel']['page']=='settings','Settings shortcut failed')
+        key('-k','F1')
+        wait(lambda:state()['panel']['page']=='shortcuts','Shortcut help failed')
+        key('-M','ctrl','-M','shift','-k','f','-m','shift','-m','ctrl')
+        wait(lambda:state()['panel']['page']=='library','Library shortcut failed')
+        key('Native note survives')
+        key('-k','Down','-k','Return')
+        wait(lambda:state()['panel']['page']=='note' and state()['panel']['noteId']==note_id,'Keyboard library selection failed')
+        check(True,'Preview, edit, settings, help, library search and result opening work from real keyboard input')
+        key('-k','Tab')
+        key('-M','ctrl','-k','e','-m','ctrl')
+        key(' Keyboard focus returned. ')
+        wait(lambda:'Keyboard focus returned.' in state()['text'],'Focus editor shortcut failed')
+        key('-M','ctrl','-k','comma','-m','ctrl')
+        key('-k','Escape')
+        wait(lambda:not state()['panel']['opened'],'Escape from settings failed')
+        check(True,'Tab navigation and Ctrl+E return to editing; Escape closes from settings')
+        ipc('open',first['address']); wait(lambda:state()['panel']['opened'],'Cannot reopen after shortcut check')
+        dispatch("window.float", action="on", window="address:" + first["address"])
+        dispatch("window.resize", x=840, y=640, relative=False, window="address:" + first["address"])
+        wait(lambda: not state()["panel"]["opened"], "Geometry change did not hide panel")
+        check(True, "Source geometry change hides notes without chasing the window")
+        ipc("open", first["address"])
+        wait(lambda: state()["panel"]["opened"] and state()["panel"]["noteId"] == note_id, "Notes did not reopen")
+        check("Native note survives" in state()["text"], "Reopening restores the persisted note")
+        source = windows()["Panel Notes native source"]
+        time.sleep(.3)
+        subprocess.run(["grim", "-g", f'{source["at"][0]},{source["at"][1]} {source["size"][0]}x{source["size"][1]}', str(evidence / "notes.png")], env=env, timeout=4, check=True)
+        ipc('preview'); ipc('light'); ipc('reduce'); time.sleep(.3)
+        subprocess.run(["grim", "-g", f'{source["at"][0]},{source["at"][1]} {source["size"][0]}x{source["size"][1]}', str(evidence / "preview-light.png")], env=env, timeout=4, check=True)
+        ipc('preview')
+        before = {w['address'] for w in hypr('clients')}
+        ipc('handoff')
+        external = wait(lambda: next((w for w in hypr('clients') if w['address'] not in before and 'omawrite' in w['class'].lower()), None), 'Omawrite handoff did not open')
+        dispatch('focus', window='address:' + external['address'])
+        subprocess.run(['wtype','-M','ctrl','-k','End','-m','ctrl','\nExternal edit returned.','-M','ctrl','-k','s','-m','ctrl'],env=env,timeout=5,check=True)
+        wait(lambda: any('External edit returned.' in p.read_text() for p in (evidence/'collection/notes').glob('*/notes.md')), 'Omawrite did not save the same file')
+        dispatch('window.close',window='address:' + external['address'])
+        ipc('reloadNote')
+        wait(lambda: 'External edit returned.' in state()['text'], 'External changes were not reloaded')
+        check(True, 'Omawrite handoff edits the same file and reloads external changes')
+        ipc('open',first['address']); time.sleep(.25)
+        ipc('noCapture'); wait(lambda:not state()['captureReady'],'Capture did not become unavailable')
+        subprocess.run(['wtype',' Capture fallback is editable.'],env=env,timeout=4,check=True)
+        wait(lambda:'Capture fallback is editable.' in state()['text'],'Capture failure blocked writing')
+        check(True,'Unavailable screencopy leaves an opaque, editable note')
+        dispatch('window.resize',x=360,y=420,relative=False,window='address:'+first['address'])
+        wait(lambda:not state()['panel']['opened'],'Small resize did not dismiss')
+        ipc('open',first['address']); wait(lambda:state()['panel']['opened'],'Small window failed to reopen')
+        source=windows()['Panel Notes native source']
+        time.sleep(.3)
+        subprocess.run(['grim','-g',f'{source["at"][0]},{source["at"][1]} {source["size"][0]}x{source["size"][1]}',str(evidence/'small.png')],env=env,timeout=4,check=True)
+        check(state()['width']==360 and state()['height']==420,'Small source keeps its bounds with wrapping controls')
+        for monitor in hypr('monitors'):
+            previous = monitor['activeWorkspace']['id']
+            dispatch('window.move', monitor=monitor['name'], follow=True, window='address:' + first['address'])
+            time.sleep(.25)
+            ipc('open', first['address'])
+            wait(lambda: state()['panel']['opened'], 'Panel failed on monitor ' + monitor['name'])
+            source = windows()['Panel Notes native source']
+            check(state()['width'] == source['size'][0], 'Logical bounds on ' + monitor['name'] + ' scale=' + str(monitor['scale']) + ' transform=' + str(monitor['transform']))
+            dispatch('window.resize', x=source['size'][0]-10, y=source['size'][1]-10, relative=False, window='address:' + first['address'])
+            wait(lambda: not state()['panel']['opened'], 'Resize did not hide on ' + monitor['name'])
+        ipc('open', first['address']); wait(lambda: state()['panel']['opened'], 'Cannot reopen before fullscreen')
+        dispatch('window.fullscreen', mode='fullscreen', action='set', window='address:' + first['address'])
+        wait(lambda: not state()['panel']['opened'], 'Fullscreen did not hide notes')
+        check(True, 'Fullscreen transition hides the panel')
+        dispatch('window.fullscreen', mode='fullscreen', action='unset', window='address:' + first['address'])
+        ipc('open',first['address']); wait(lambda:state()['panel']['opened'],'Cannot reopen before workspace change')
+        dispatch('focus',workspace='name:panel-notes-away-'+str(os.getpid()))
+        wait(lambda:not state()['panel']['opened'],'Invisible workspace did not hide notes')
+        check(True,'Leaving the source workspace hides the input surface')
+        dispatch('focus',window='address:'+first['address'])
+        ipc('open', first['address']); wait(lambda: state()['panel']['opened'], 'Cannot reopen before close')
+        dispatch('window.close', window='address:' + first['address'])
+        wait(lambda: not state()['panel']['opened'], 'Source close did not hide notes')
+        check(True, 'Closing the source dismisses its input surface while retaining content')
+        ipc('open', second['address']); wait(lambda: state()['panel']['opened'], 'Cannot reopen for content fixture')
+        ipc('alternate'); time.sleep(.3)
+        ipc('edit', 'Alternate content is preserved as plain text.')
+        wait(lambda: state()['panel']['status']=='Saved' and state()['text'].startswith('Alternate'), 'Alternate content did not save')
+        check(any('Alternate content' in p.read_text() for p in (evidence/'collection/notes').glob('*/content.txt')), 'Separately registered content editor renders and saves without host routing changes')
+        ipc("close")
+        saved = list((evidence / "collection/notes").glob("*/notes.md"))
+        check(any("Native note survives" in path.read_text() and (not pasted_image or "assets/" in path.read_text()) for path in saved), "Saved Markdown and any pasted asset links verified independently on disk")
+        ipc('open',second['address']); wait(lambda:state()['panel']['opened'],'Cannot open for scope shortcut check')
+        ipc('scopes'); wait(lambda:state()['panel']['scope']==0,'Scope fixture failed')
+        key('-M','alt','-k','2','-m','alt')
+        wait(lambda:state()['panel']['scope']==1,'Alt+2 scope shortcut failed')
+        key('-M','ctrl','-M','shift','-k','Tab','-m','shift','-m','ctrl')
+        wait(lambda:state()['panel']['scope']==0,'Previous scope shortcut failed')
+        key('-M','ctrl','-k','Tab','-m','ctrl')
+        wait(lambda:state()['panel']['scope']==1,'Next scope shortcut failed')
+        check(True,'Alt+number and Ctrl+Tab / Ctrl+Shift+Tab select the intended scopes')
+        ipc('close')
+        ipc('open',second['address']); wait(lambda:state()['panel']['opened'],'Cannot open for reconnect check')
+        subprocess.run([sys.executable,str(ROOT/'panel-notes'),'shutdown'],env=env,check=True,timeout=5)
+        wait(lambda:state()['panel']['status']=='Connection lost','Disconnect was not reported')
+        ipc('edit','Draft written during service disconnect.')
+        ipc('retrySave')
+        wait(lambda:state()['panel']['status']=='Saved' and state()['text']=='Draft written during service disconnect.','Reconnect did not preserve the draft')
+        check(True,'Service disconnect retains editor text and retry establishes a fresh ordered writer')
+    finally:
+        pointer.close()
+        if process:
+            process.terminate()
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired: process.kill(); process.wait()
+        subprocess.run([sys.executable, str(ROOT / "panel-notes"), "shutdown"], env=env, capture_output=True)
+        dispatch("focus", workspace=str(original["id"]))
+        if original_window:
+            dispatch("focus", window="address:" + original_window)
+        dispatch("cursor.move", x=original_cursor["x"], y=original_cursor["y"])
+        (evidence / "results.json").write_text(json.dumps({"passed":results}, indent=2))
+        for name in ('Commons', 'Ui', 'Notes'):
+            (evidence / name).unlink(missing_ok=True)
+        print("Evidence: " + str(evidence), flush=True)
+
+
+if __name__ == "__main__": main()

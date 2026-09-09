@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""User entry point and local bridge. Never put note contents in shell arguments."""
+import argparse
+import json
+import subprocess
+import sys
+
+# Omarchy watches the installation recursively. Runtime bytecode writes would
+# trigger panel unloads while the user is typing.
+sys.dont_write_bytecode = True
+
+from core.backend import PLUGIN_ID
+from core.server import ensure, call, serve, shutdown
+from core.session import environment
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name in ("toggle", "hide", "library", "ensure", "serve", "shutdown", "status"):
+        sub.add_parser(name)
+    rpc = sub.add_parser("rpc", help="Send one JSON request from stdin")
+    args = parser.parse_args()
+    if args.command == "serve":
+        serve()
+        return
+    if args.command == "ensure":
+        print(json.dumps({"socket": ensure()}))
+        return
+    if args.command == "shutdown":
+        shutdown()
+        return
+    if args.command in ("toggle", "hide", "library"):
+        operation = "hide" if args.command == "hide" else "summon"
+        command = ["omarchy-shell", "shell", operation, PLUGIN_ID]
+        if operation == "summon":
+            command.append(json.dumps({"view": "library"} if args.command == "library" else {}))
+        subprocess.run(command, env=environment(), check=True)
+        return
+    ensure()
+    if args.command == "status":
+        print(json.dumps(call({"op": "hello"}), indent=2))
+    elif args.command == "rpc":
+        print(json.dumps(call(json.load(sys.stdin))))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        print("Panel Notes: " + str(error), file=sys.stderr)
+        sys.exit(1)

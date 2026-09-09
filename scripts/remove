@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Remove the installed plugin; preserve notes, recovery, and this checkout."""
+from pathlib import Path
+import subprocess
+import sys
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from core.session import environment
+from core.backend import PLUGIN_ID
+env = environment()
+target = Path.home() / '.config/omarchy/plugins' / PLUGIN_ID
+if target.exists():
+    subprocess.run([str(target / 'panel-notes'), 'shutdown'], env=env, check=True)
+    subprocess.run(['omarchy', 'plugin', 'remove', PLUGIN_ID, '--yes'], env=env, check=True)
+link = Path.home() / '.local/bin/panel-notes'
+if link.is_symlink() and link.readlink() == target / 'panel-notes': link.unlink()
+bindings = Path.home() / '.config/hypr/bindings.lua'
+marker = '-- Panel Notes shortcut\n'
+if bindings.exists():
+    lines = bindings.read_text().splitlines(keepends=True)
+    out, skip = [], False
+    for line in lines:
+        if line == marker: skip = True; continue
+        if skip and 'Panel Notes' in line: skip = False; continue
+        skip = False; out.append(line)
+    if out != lines:
+        bindings.write_text(''.join(out))
+        subprocess.run(['hyprctl', 'reload'], env=env, check=True)
+        subprocess.run(['hyprctl', 'configerrors'], env=env, check=True)
+print('Removed Panel Notes. Your notes and recovery drafts were retained.')

@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""Prove uninstall retains a selected collection, then restore local installation."""
+import json
+from pathlib import Path
+import subprocess
+import sys
+import time
+ROOT=Path(__file__).resolve().parent.parent
+sys.path.insert(0,str(ROOT))
+from core.session import environment
+from core.backend import PLUGIN_ID
+from core.storage import Store
+env=environment()
+installed=Path.home()/'.config/omarchy/plugins'/PLUGIN_ID
+if ROOT==installed: raise SystemExit('Run check-removal from the development checkout.')
+evidence=ROOT/'.test-output'/('removal-'+str(int(time.time())));evidence.mkdir(parents=True)
+config=Path.home()/'.config/omarchy/shell.json'
+original=next(x.copy() for x in json.loads(config.read_text())['plugins'] if isinstance(x,dict) and x.get('id')==PLUGIN_ID)
+original.pop('id',None)
+def run(args):
+    result=subprocess.run(args,env=env,capture_output=True,text=True,timeout=40)
+    if result.returncode:raise RuntimeError(str(args)+': '+result.stderr+result.stdout)
+    return result.stdout.strip()
+def configure(value):
+    for _ in range(30):
+        if run(['omarchy-shell','shell','call',PLUGIN_ID,'configure',json.dumps(value)])=='ok':
+            time.sleep(.5);return
+        time.sleep(.1)
+    raise RuntimeError('Panel was not loaded for configuration.')
+note=Store(evidence/'collection').for_scope({'key':'test:removal','kind':'object','title':'Removal acceptance'})
+path=Path(note['path']);path.write_text('Keep this note through plugin removal.\n')
+before=path.read_bytes()
+passed=False
+try:
+    configure({**original,'notesRoot':str(evidence/'collection')})
+    run([str(installed/'panel-notes'),'shutdown'])
+    assert json.loads(run([str(installed/'panel-notes'),'status']))['root']==str(evidence/'collection')
+    run([str(ROOT/'scripts/remove')])
+    assert not installed.exists()
+    assert path.read_bytes()==before
+    passed=True
+    print('PASS Removal preserves the selected collection and its exact Markdown content')
+finally:
+    run([str(ROOT/'scripts/install')])
+    run([str(ROOT/'scripts/bind-shortcut')])
+    configure(original)
+    run([str(installed/'panel-notes'),'shutdown'])
+    (evidence/'results.json').write_text(json.dumps({'passed':passed,'reinstalled':True},indent=2))
+    print('Restored installation and shortcut. Evidence: '+str(evidence))

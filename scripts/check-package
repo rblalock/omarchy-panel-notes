@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+root = Path(__file__).resolve().parent.parent
+with tempfile.TemporaryDirectory(prefix='panel-notes-package-') as directory:
+    package = Path(directory) / 'plugin'
+    shutil.copytree(root, package, ignore=shutil.ignore_patterns('.git', '.test-output', '__pycache__', '*.pyc', 'build'))
+    subprocess.run(['omarchy','plugin','validate',str(package)],check=True)

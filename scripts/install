@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""Install this checkout into Omarchy; repeat to update. Notes remain outside it."""
+import json
+import re
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+import tempfile
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from core.session import environment
+from core.backend import PLUGIN_ID
+
+env = environment()
+env['OMARCHY_SHELL_IPC_TIMEOUT'] = '10s'
+target = Path.home() / '.config/omarchy/plugins' / PLUGIN_ID
+target.parent.mkdir(parents=True, exist_ok=True)
+# Validate outside the watched plugins tree, then expose one complete directory.
+with tempfile.TemporaryDirectory(prefix='.panel-notes-stage-', dir=target.parent.parent) as temporary:
+    staged = Path(temporary) / PLUGIN_ID
+    shutil.copytree(ROOT, staged, ignore=shutil.ignore_patterns('.git', '.test-output', '__pycache__', '*.pyc', 'build'))
+    subprocess.run(['omarchy', 'plugin', 'validate', str(staged)], env=env, check=True)
+    if target.exists():
+        subprocess.run([str(target / 'panel-notes'), 'hide'], env=env, check=True)
+        for attempt in range(30):
+            result = subprocess.run(['omarchy-shell','shell','call',PLUGIN_ID,'inspect',''], env=env, capture_output=True, text=True)
+            try:
+                state = json.loads(result.stdout)
+                if not state.get('noteId') or (state.get('pendingSaves', 0) == 0 and state.get('status') == 'Saved'): break
+            except ValueError: pass
+            time.sleep(.1)
+        else: raise SystemExit('Update stopped: the current note has not finished saving. Resolve its save status before updating.')
+        subprocess.run([str(target / 'panel-notes'), 'shutdown'], env=env, check=True)
+        backup = Path.home() / '.local/state/panel-notes/plugin-backups' / str(time.time_ns())
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        target.rename(backup)
+    staged.rename(target)
+subprocess.run(['omarchy-shell', 'shell', 'rescanPlugins'], env=env, check=True)
+for attempt in range(30):
+    enabled = subprocess.run(['omarchy', 'plugin', 'enable', PLUGIN_ID], env=env, capture_output=True, text=True)
+    if enabled.returncode == 0: break
+    if 'not known' not in enabled.stderr: raise SystemExit(enabled.stderr)
+    subprocess.run(['omarchy-shell', 'shell', 'rescanPlugins'], env=env, check=True)
+    time.sleep(.1)  # Registry rescan is asynchronous in the running shell.
+else: raise SystemExit(enabled.stderr)
+localbin = Path.home() / '.local/bin'
+localbin.mkdir(parents=True, exist_ok=True)
+link = localbin / 'panel-notes'
+if link.is_symlink(): link.unlink()
+if link.exists(): raise SystemExit('Installed plugin. Existing ~/.local/bin/panel-notes was retained; use ' + str(target / 'panel-notes'))
+link.symlink_to(target / 'panel-notes')
+expected = re.search(r'property string interfaceVersion: "([^"]+)"', (ROOT/'Panel.qml').read_text()).group(1)
+def loaded():
+    ready = subprocess.run(['omarchy-shell','shell','call',PLUGIN_ID,'inspect',''],env=env,capture_output=True,text=True)
+    try:
+        value = json.loads(ready.stdout)
+        return value.get('interfaceVersion') == expected and value.get('loadedPath') == (target/'Panel.qml').as_uri()
+    except (ValueError, AttributeError): return False
+for attempt in range(20):
+    if loaded(): break
+    time.sleep(.15)
+else:
+    print('Shell retained older plugin code; restarting the shell to load this update.', flush=True)
+    subprocess.run(['omarchy','restart','shell'],env=env,check=True)
+    for attempt in range(30):
+        if loaded(): break
+        time.sleep(.2)
+    else: raise SystemExit('Installed files, but the running panel version does not match. Update verification failed.')
+print('Installed and verified running interface ' + expected + '. Focus a window, then run: panel-notes toggle')

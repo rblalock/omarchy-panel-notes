@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.rblalock.panel-notes",
+  "name": "Panel Notes",
+  "version": "0.1.0",
+  "author": "Rick Blalock",
+  "license": "MIT",
+  "description": "Notes attached to apps, pages, files and directories.",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": { "panel": "Panel.qml" }
+}

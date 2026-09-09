@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Validate actual Omarchy lifecycle using a disposable collection and window."""
+import json
+import re
+from pathlib import Path
+import subprocess
+import sys
+import time
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from core.session import environment, hypr, dispatch
+from core.backend import PLUGIN_ID
+sys.path.insert(0, str(ROOT/'tests/native'))
+from pointer import Keyboard
+
+if '--isolated-session' not in sys.argv:
+    raise SystemExit('This lifecycle test changes global notes settings. Run in a disposable desktop with --isolated-session; use scripts/check-installed-ui on your normal desktop.')
+
+env=environment()
+env['OMARCHY_SHELL_IPC_TIMEOUT']='10s'
+evidence=ROOT/'.test-output'/('installed-'+str(int(time.time()))); evidence.mkdir(parents=True)
+cli=Path.home()/'.config/omarchy/plugins'/PLUGIN_ID/'panel-notes'
+original=hypr('activeworkspace')['id']; active=hypr('activewindow').get('address')
+configpath=Path.home()/'.config/omarchy/shell.json'
+original_settings=next((p.copy() for p in json.loads(configpath.read_text()).get('plugins',[]) if isinstance(p,dict) and p.get('id')==PLUGIN_ID),{})
+original_settings.pop('id',None)
+original_settings.setdefault('notesRoot',str(Path.home()/'Documents/Panel Notes'))
+def run(args):
+    result = subprocess.run(args,env=env,capture_output=True,text=True,timeout=15)
+    if result.returncode: raise RuntimeError(str(args) + ': ' + result.stderr + result.stdout)
+    return result.stdout.strip()
+def shell(*args): return run(['omarchy-shell','shell',*args])
+def state(): return json.loads(shell('call',PLUGIN_ID,'inspect',''))
+def configure(value): return shell('call',PLUGIN_ID,'configure',json.dumps(value))
+def wait(fn,message):
+    until=time.monotonic()+6
+    while time.monotonic()<until:
+        try:
+            value=fn()
+            if value:return value
+        except (ValueError,RuntimeError,subprocess.SubprocessError):pass
+        time.sleep(.12)
+    raise AssertionError(message + ': ' + json.dumps(state()))
+results=[]; process=None; keyboard=Keyboard()
+def check(value,message):
+    if not value:raise AssertionError(message)
+    results.append(message);print('PASS '+message,flush=True)
+try:
+    run([str(cli),'hide']);run([str(cli),'shutdown'])
+    time.sleep(.3)
+    wait(lambda: configure({'notesRoot':str(evidence/'collection')}) == 'ok', 'Panel settings entry was not loaded')
+    wait(lambda: str(evidence/'collection') in configpath.read_text(),'Scoped settings did not persist')
+    time.sleep(1)
+    check(True,'Own settings are persisted through the scoped Omarchy shell API')
+    dispatch('focus',workspace='name:panel-notes-installed-'+str(int(time.time())))
+    log=(evidence/'shell.log').open('w')
+    process=subprocess.Popen(['qs','-p',str(ROOT/'tests/native/source.qml')],env=env,stdout=log,stderr=log)
+    source=wait(lambda:next((w for w in hypr('clients') if w['pid']==process.pid),None),'Test window absent')
+    dispatch('focus',window='address:'+source['address'])
+    keyboard.shortcut()
+    wait(lambda:state()['opened'] and state()['noteId'],'Installed keyboard shortcut did not open notes')
+    time.sleep(.3)
+    expected = re.search(r'property string interfaceVersion: "([^"]+)"', (ROOT/'Panel.qml').read_text()).group(1)
+    loaded = state()
+    check(loaded.get('interfaceVersion') == expected and loaded.get('loadedPath') == (cli.parent/'Panel.qml').as_uri(), 'Live Omarchy panel reports the installed interface version and path')
+    check('Snapshot' in loaded['actions'] and 'Preview' in loaded['actions'] and '?' in loaded['actions'], 'Actual controls have shortcut help, Preview and Snapshot')
+    run(['grim','-g',f"{source['at'][0]},{source['at'][1]} {source['size'][0]}x{source['size'][1]}", str(evidence/'installed-panel.png')])
+    run(['wtype','-k','F1']);wait(lambda:state()['page']=='shortcuts','Installed F1 guide failed')
+    run(['wtype','-M','ctrl','-k','comma','-m','ctrl']);wait(lambda:state()['page']=='settings','Installed settings shortcut failed')
+    run(['wtype','-M','ctrl','-k','e','-m','ctrl']);wait(lambda:state()['page']=='note','Installed editor shortcut failed')
+    run(['wtype','-M','ctrl','-M','shift','-k','p','-m','shift','-m','ctrl']);wait(lambda:state()['preview'],'Installed preview shortcut failed')
+    run(['wtype','-M','ctrl','-M','shift','-k','p','-m','shift','-m','ctrl']);wait(lambda:not state()['preview'],'Installed edit shortcut failed')
+    check(True,'Real keyboard input activates help, settings, editor, and preview in the installed desktop panel')
+    run(['wtype','Installed note survives reload.'])
+    wait(lambda:state()['status']=='Saved' and state()['pendingSaves']==0,'Installed edit did not save')
+    note_id=state()['noteId']
+    file=wait(lambda:next((p for p in (evidence/'collection/notes').glob('*/notes.md') if 'Installed note' in p.read_text()),None),'Saved file missing')
+    check(True,'Super+Alt+N opens the installed plugin and native typing reaches its Markdown file')
+    shell('rescanPlugins');time.sleep(1)
+    dispatch('focus',window='address:'+source['address']);run([str(cli),'toggle'])
+    wait(lambda:state()['opened'] and state()['noteId']==note_id,'Rescan lost note identity')
+    check(file.read_text()=='Installed note survives reload.','Confirmed note survives forced panel unload and rescan')
+    run(['omarchy','plugin','disable',PLUGIN_ID]);time.sleep(.2)
+    run(['omarchy','plugin','enable',PLUGIN_ID]);time.sleep(1)
+    dispatch('focus',window='address:'+source['address']);run([str(cli),'toggle'])
+    wait(lambda:state()['opened'] and state()['noteId']==note_id,'Re-enable lost note identity')
+    check(True,'Disable/re-enable restores the same durable note')
+    run([str(cli),'hide']);run([str(cli),'shutdown']);shell('rescanPlugins');time.sleep(1)
+    dispatch('focus',window='address:'+source['address']);run([str(cli),'toggle'])
+    wait(lambda:state()['opened'] and state()['noteId']==note_id,'Service restart lost note')
+    check(file.read_text()=='Installed note survives reload.','Notes service restart reads confirmed content from disk')
+    run(['wtype','-k','Escape']);wait(lambda:not state()['opened'],'Escape did not dismiss')
+    check(hypr('activewindow').get('address')==source['address'],'Escape returns focus to the original application')
+finally:
+    keyboard.close()
+    cleanup_errors=[]
+    for action in (lambda:run([str(cli),'hide']),lambda:configure(original_settings),lambda:time.sleep(.5),lambda:run([str(cli),'shutdown']),lambda:shell('rescanPlugins')):
+        try:action()
+        except Exception as error:cleanup_errors.append(str(error))
+    if process:
+        process.terminate()
+        try:process.wait(timeout=5)
+        except subprocess.TimeoutExpired:process.kill();process.wait()
+    dispatch('focus',workspace=str(original))
+    if active:dispatch('focus',window='address:'+active)
+    (evidence/'results.json').write_text(json.dumps({'passed':results,'cleanupErrors':cleanup_errors},indent=2))
+    print('Evidence: '+str(evidence))
+    if cleanup_errors:raise RuntimeError('Cleanup could not complete: '+str(cleanup_errors))

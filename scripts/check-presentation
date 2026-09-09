@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Verify snapshot freshness and writing layout using a separate notes collection."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+ROOT=Path(__file__).resolve().parent.parent
+sys.path.insert(0,str(ROOT))
+from core.session import environment,hypr,dispatch
+
+evidence=ROOT/'.test-output'/('presentation-'+str(int(time.time())));evidence.mkdir(parents=True)
+for name,path in {'Commons':Path('/usr/share/omarchy/shell/Commons'),'Ui':Path('/usr/share/omarchy/shell/Ui'),'Notes':ROOT}.items(): (evidence/name).symlink_to(path)
+(evidence/'shell.qml').write_text((ROOT/'tests/native/shell.qml').read_text())
+env=environment();env.update(PANEL_NOTES_ROOT=str(evidence/'collection'),PANEL_NOTES_RECOVERY=str(evidence/'recovery'))
+original=hypr('activeworkspace')['id'];active=hypr('activewindow').get('address')
+process=None;results=[]
+def ipc(method,*args):
+ r=subprocess.run(['qs','ipc','-p',str(evidence),'call','test',method,*args],env=env,capture_output=True,text=True,check=True,timeout=5)
+ return r.stdout.strip()
+def state():return json.loads(ipc('state'))
+def wait(fn,message):
+ until=time.monotonic()+8
+ while time.monotonic()<until:
+  try:
+   v=fn()
+   if v:return v
+  except (ValueError,subprocess.SubprocessError):pass
+  time.sleep(.1)
+ raise AssertionError(message)
+def pixel(path):
+ r=subprocess.run(['magick',str(path),'-format','%[fx:round(255*p{w/2,h-30}.r)],%[fx:round(255*p{w/2,h-30}.g)],%[fx:round(255*p{w/2,h-30}.b)]','info:'],capture_output=True,text=True,check=True)
+ return tuple(map(int,r.stdout.split(',')))
+def check(value,message):
+ assert value,message
+ results.append(message);print('PASS '+message,flush=True)
+try:
+ dispatch('focus',workspace='name:panel-notes-presentation-'+str(os.getpid()))
+ log=(evidence/'native.log').open('w')
+ process=subprocess.Popen(['qs','-p',str(evidence),'--no-color'],env=env,stdout=log,stderr=log)
+ def source():return next((w for w in hypr('clients') if w['pid']==process.pid and w['title']=='Panel Notes native source'),None)
+ w=wait(source,'Source absent');address=w['address']
+ dispatch('window.float',action='on',window='address:'+address)
+ dispatch('window.resize',x=1500,y=850,relative=False,window='address:'+address)
+ dispatch('focus',window='address:'+address)
+ ipc('open',address);wait(lambda:state()['panel']['opened'] and state()['panel']['noteId'],'Panel absent')
+ fixture = '# A little room to think\n\nFirst thought.\nA second line stays separate.\n\n> A quote worth keeping.\n> With a second line.\n\n```sh\necho "<hello>"\n  # Keep indentation\n```\n'
+ ipc('edit',fixture);wait(lambda:state()['panel']['status']=='Saved','Text not saved')
+ ipc('preview');time.sleep(.3)
+ rendered=json.loads(ipc('rendered'))
+ check(any(b['kind']=='previewText' and b['lines']==2 and 'First thought.' in b['text'] for b in rendered),'Ordinary entered line breaks render as two separate lines')
+ check(any(b['kind']=='previewQuote' and b['lines']==2 for b in rendered),'Quote block renders both lines inside its styled container')
+ check(any(b['kind']=='previewCode' and b['text']=='echo "<hello>"\n  # Keep indentation' for b in rendered),'Code preview preserves literal characters and indentation')
+ check(state()['text']==fixture and next((evidence/'collection/notes').glob('*/notes.md')).read_text()==fixture,'Preview leaves editor and saved Markdown unchanged')
+ ipc('preview')
+ typo=json.loads(ipc('typography'))
+ check(typo['font']==20 and typo['column']==960 and abs(typo['x']-(typo['width']-960)/2)<2,'Wide editor uses 20px type and a centered 960px writing column')
+ w=source();time.sleep(.3)
+ subprocess.run(['grim','-g',f"{w['at'][0]},{w['at'][1]} {w['size'][0]}x{w['size'][1]}",str(evidence/'wide.png')],env=env,check=True)
+ ipc('snapshot');wait(lambda:'![Source snapshot]' in state()['text'] and state()['panel']['status']=='Saved','First snapshot failed')
+ assets=list((evidence/'collection/notes').glob('*/assets/*.png'));check(len(assets)==1,'Snapshot inserts a saved relative image into the note')
+ check(pixel(assets[0])==(38,53,43),'Snapshot captures only the source window, not the notes overlay')
+ ipc('sourceColor','#74332d');time.sleep(.3)
+ ipc('snapshot');wait(lambda:state()['text'].count('![Source snapshot]')==2 and state()['panel']['status']=='Saved','Second snapshot failed')
+ latest=next(p for p in (evidence/'collection/notes').glob('*/assets/*.png') if p not in assets)
+ check(pixel(latest)==(116,51,45),'Second Snapshot captures updated source content while notes remain open')
+ ipc('preview');time.sleep(.3)
+ subprocess.run(['grim','-g',f"{w['at'][0]},{w['at'][1]} {w['size'][0]}x{w['size'][1]}",str(evidence/'preview.png')],env=env,check=True)
+ ipc('light');time.sleep(.2)
+ subprocess.run(['grim','-g',f"{w['at'][0]},{w['at'][1]} {w['size'][0]}x{w['size'][1]}",str(evidence/'preview-light.png')],env=env,check=True)
+ dispatch('window.resize',x=400,y=580,relative=False,window='address:'+address)
+ wait(lambda:not state()['panel']['opened'],'Resize did not hide')
+ ipc('open',address);wait(lambda:state()['panel']['opened'],'Narrow panel absent')
+ if state()['panel']['preview']:ipc('preview')
+ typo=json.loads(ipc('typography'));check(typo['column']==typo['width'] and 12<=typo['gutter']<=20,'Narrow editor keeps readable margins without overflowing')
+ w=source();time.sleep(.3)
+ subprocess.run(['grim','-g',f"{w['at'][0]},{w['at'][1]} {w['size'][0]}x{w['size'][1]}",str(evidence/'narrow.png')],env=env,check=True)
+finally:
+ if process:
+  process.terminate()
+  try:process.wait(timeout=4)
+  except subprocess.TimeoutExpired:process.kill();process.wait()
+ subprocess.run([str(ROOT/'panel-notes'),'shutdown'],env=env,capture_output=True)
+ dispatch('focus',workspace=str(original))
+ if active:dispatch('focus',window='address:'+active)
+ for name in ('Commons','Ui','Notes'):(evidence/name).unlink(missing_ok=True)
+ (evidence/'results.json').write_text(json.dumps({'passed':results},indent=2))
+ print('Evidence: '+str(evidence))
