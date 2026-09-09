@@ -14,6 +14,7 @@ Item {
     property var shell: null
     property var manifest: null
     property bool opened: false
+    property bool closing: false
     property var sourceWindow: null
     property bool saveBlocked: false
     property bool needsResume: false
@@ -28,7 +29,7 @@ Item {
     property bool tabBusy: false
     property string tabError: ""
     property alias tabDialog: addTabDialog
-    property alias tabInput: resource
+    property alias tabInput: tabName
     readonly property var currentScope: selectedScope >= 0 && selectedScope < scopes.length ? scopes[selectedScope] : null
     property bool preview: false
     property bool externalEditing: false
@@ -44,16 +45,18 @@ Item {
     property var afterSaved: null
     property var pendingOpen: null
     property string socketPath: ""
+    property bool serviceReady: false
+    Component.onCompleted: bootstrap.running = true
     property bool observePending: false
     property string collectionRoot: ""
     property real reveal: 0
     property var snapshotJob: null
-    readonly property string interfaceVersion: "2026-09-09.9"
+    readonly property string interfaceVersion: "2026-09-09.14"
     readonly property string pluginId: "io.github.rblalock.panel-notes"
     readonly property var capabilities: note && contentTypes[note.meta.type] && note.meta.formatVersion === contentTypes[note.meta.type].formatVersion ? contentTypes[note.meta.type].capabilities || {} : ({})
     readonly property string executable: decodeURIComponent(Qt.resolvedUrl("panel-notes").toString().replace(/^file:\/\//, ""))
     readonly property var sourceToplevel: sourceWindow ? Hyprland.toplevels.values.filter(function(w) { return "0x" + w.address.replace(/^0x/, "") === sourceWindow.address })[0] : null
-    onSourceToplevelChanged: if (opened && sourceWindow && sourceWindow.address && !sourceToplevel) close()
+    onSourceToplevelChanged: if ((opened || closing) && sourceWindow && sourceWindow.address && !sourceToplevel) close()
     readonly property bool editorFocused: surface.contentItem.Window.window ? surface.contentItem.Window.window.active : false
     property alias editor: editorLoader.item
     property alias panelWindow: surface
@@ -69,7 +72,11 @@ Item {
         var payload = {}
         try { payload = JSON.parse(payloadJson || "{}") } catch (error) { failure = "Invalid opening request."; return }
         if (opened && editorFocused && !payload.address && !payload.view) { closeAndReturn(); return }
-        if (!socket.connected) { pendingOpen = payload; bootstrap.running = true; return }
+        if (!serviceReady) {
+            pendingOpen = payload
+            if (!socket.connected) bootstrap.running = true
+            return
+        }
         openResolved(payload)
     }
     function openResolved(payload) {
@@ -87,20 +94,34 @@ Item {
                 root.externalEditing = false
                 root.page = payload.view || "note"
                 // Remap on explicit retargeting so OnDemand grants opening focus again.
-                root.opened = false
-                root.reveal = 0
-                Qt.callLater(function() { root.opened = true; focusRelease.restart() })
-                var preferred = (root.config.scopeKinds || {})[result.source.app]
-                var index = root.scopes.findIndex(function(scope) { return scope.kind === preferred })
+                enterMotion.stop(); exitMotion.stop(); focusRelease.stop()
+                root.closing = false; root.opened = false; root.reveal = 0
+                Qt.callLater(function() {
+                    if (token !== root.generation) return
+                    root.opened = true; focusRelease.restart()
+                })
+                var preferred = (root.config.scopeKeys || {})[result.source.app]
+                var index = root.scopes.findIndex(function(scope) { return scope.key === preferred })
                 root.selectScope(index >= 0 ? index : Math.max(0, root.scopes.length - 1))
                 if (root.page === "library") root.search("")
             })
         })
     }
-    function close() { addTabDialog.close(); snapshotJob = null; snapshotTimeout.stop(); opened = false; generation++; observePending = false }
+    function close() {
+        focusRelease.stop(); enterMotion.stop(); exitMotion.stop()
+        addTabDialog.close(); snapshotJob = null; snapshotTimeout.stop()
+        opened = false; closing = false; reveal = 0; generation++; observePending = false
+    }
+    function dismiss() {
+        if (!opened) return
+        focusRelease.stop(); enterMotion.stop()
+        addTabDialog.close(); snapshotJob = null; snapshotTimeout.stop()
+        closing = true; opened = false; generation++; observePending = false
+        exitMotion.restart()
+    }
     function closeAndReturn() {
         var source = sourceWindow
-        close()
+        dismiss()
         if (source && source.address) request("focus", {source:source})
     }
     function saveThen(callback) {
@@ -117,10 +138,10 @@ Item {
         if (index < 0 || index >= scopes.length) return
         saveThen(function() {
             if (remember) {
-                var preferences = Object.assign({}, root.config.scopeKinds || {})
-                preferences[root.sourceWindow.app] = root.scopes[index].kind
-                root.config = Object.assign({}, root.config, {scopeKinds:preferences})
-                root.request("preference", {app:root.sourceWindow.app, kind:root.scopes[index].kind})
+                var preferences = Object.assign({}, root.config.scopeKeys || {})
+                preferences[root.sourceWindow.app] = root.scopes[index].key
+                root.config = Object.assign({}, root.config, {scopeKeys:preferences})
+                root.request("preference", {app:root.sourceWindow.app, key:root.scopes[index].key})
             }
             root.request("scope", {scope:root.scopes[index]}, function(value) { root.setNote(value); root.selectedScope = index })
         })
@@ -206,7 +227,7 @@ Item {
     }
     function showAddTab() {
         if (!sourceWindow || !sourceWindow.address) return
-        tabError = ""; resource.text = ""; addTabDialog.open()
+        tabError = ""; tabName.text = ""; addTabDialog.open()
     }
     function applyTabs(result) {
         scopes = result.scopes
@@ -214,11 +235,11 @@ Item {
         showPage("note"); selectScope(index >= 0 ? index : 0)
     }
     function addTab() {
-        if (tabBusy || !sourceWindow || !resource.text.trim()) return
+        if (tabBusy || !sourceWindow || !tabName.text.trim()) return
         if (!socket.connected || saveBlocked) { tabError = "Finish saving your note before adding a tab."; return }
         saveThen(function() {
             root.tabBusy = true; root.tabError = ""
-            root.request("add-tab", {address:root.sourceWindow.address, expected:root.sourceWindow, value:resource.text.trim()}, function(result) {
+            root.request("add-tab", {address:root.sourceWindow.address, expected:root.sourceWindow, name:tabName.text.trim()}, function(result) {
                 root.tabBusy = false; addTabDialog.close(); root.applyTabs(result)
             })
         })
@@ -272,7 +293,7 @@ Item {
         for (var child of node.children || []) actions = actions.concat(visibleActions(child))
         return actions
     }
-    function inspect() { return JSON.stringify({interfaceVersion:interfaceVersion, loadedPath:Qt.resolvedUrl("Panel.qml").toString(), actions:visibleActions(surface.contentItem), opened:opened, source:sourceWindow, scope:selectedScope, noteId:note ? note.meta.id : null, status:status, failure:failure, pendingSaves:pendingSaves, focused:editorFocused, page:page, preview:preview}) }
+    function inspect() { return JSON.stringify({interfaceVersion:interfaceVersion, loadedPath:Qt.resolvedUrl("Panel.qml").toString(), actions:visibleActions(surface.contentItem), serviceReady:serviceReady, opened:opened, source:sourceWindow, scope:selectedScope, noteId:note ? note.meta.id : null, status:status, failure:failure, pendingSaves:pendingSaves, focused:editorFocused, page:page, preview:preview}) }
 
     Process {
         id: bootstrap
@@ -294,6 +315,7 @@ Item {
                     delete root.callbacks[response.id]
                     if (!response.ok) {
                         root.failure = response.error
+                        if (entry && entry.op === "hello") socket.connected = false
                         if (entry && /^(add-tab|remove-tab)$/.test(entry.op)) { root.tabBusy = false; root.tabError = response.error }
                         if (entry && /^(prepare-capture|import-capture)$/.test(entry.op)) { root.snapshotJob = null; snapshotTimeout.stop() }
                         if (entry && entry.op === "save") {
@@ -307,9 +329,11 @@ Item {
             }
         }
         onConnectionStateChanged: {
+            if (!connected) root.serviceReady = false
             if (connected) root.request("hello", {}, function(result) {
                 root.config = result.settings; root.contentTypes = result.content
                 root.collectionRoot = result.root; root.recoveries = result.recoveries
+                root.serviceReady = true
                 if (root.note && (root.needsResume || root.retryPending)) { root.retrySave(); return }
                 if (root.pendingOpen) { var payload = root.pendingOpen; root.pendingOpen = null; root.openResolved(payload) }
             })
@@ -321,9 +345,11 @@ Item {
             }
         }
     }
-    Timer { id: focusRelease; interval: 16; onTriggered: { root.reveal = 1; if (root.editor) root.editor.focusEditor() } }
+    Timer { id: focusRelease; interval: 16; onTriggered: { if (!root.opened) return; enterMotion.restart(); if (root.editor) root.editor.focusEditor() } }
+    NumberAnimation { id: enterMotion; target: root; property: "reveal"; to: 1; duration: root.config.reducedMotion ? 70 : 200; easing.type: Easing.OutCubic }
+    NumberAnimation { id: exitMotion; target: root; property: "reveal"; to: 0; duration: root.config.reducedMotion ? 70 : 200; easing.type: Easing.InCubic; onFinished: root.closing = false }
     Timer {
-        interval: 180; repeat: true; running: root.opened && socket.connected && root.sourceWindow !== null && !!root.sourceWindow.address
+        interval: 180; repeat: true; running: (root.opened || root.closing) && socket.connected && root.sourceWindow !== null && !!root.sourceWindow.address
         onTriggered: {
             if (root.observePending) return
             root.observePending = true
@@ -340,7 +366,9 @@ Item {
     }
     PanelWindow {
         id: surface
-        visible: root.opened
+        visible: root.opened || root.closing
+        mask: root.opened ? null : noInput
+        Region { id: noInput }
         color: "transparent"
         screen: root.sourceWindow ? Quickshell.screens.filter(function(s) { return s.name === root.sourceWindow.monitor.name })[0] : null
         anchors { top: true; left: true }
@@ -351,7 +379,7 @@ Item {
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.namespace: "panel-notes"
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+        WlrLayershell.keyboardFocus: root.opened ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
         Shortcut { sequence: "Escape"; enabled: root.opened && !addTabDialog.opened; context: Qt.WindowShortcut; onActivated: root.closeAndReturn() }
         Shortcut { sequence: "Ctrl+Tab"; enabled: root.opened && root.page === "note" && !addTabDialog.opened; onActivated: root.cycleScope(1) }
@@ -365,26 +393,27 @@ Item {
             modal: true; focus: true
             padding: Style.space(24)
             closePolicy: root.tabBusy ? Popup.NoAutoClose : Popup.CloseOnEscape
-            onOpened: resource.forceActiveFocus()
+            onOpened: tabName.forceActiveFocus()
             onClosed: if (root.editor) root.editor.focusEditor()
             background: Rectangle { color: Color.background; radius: Style.cornerRadius; border.width: 1; border.color: Qt.alpha(Color.accent, .5) }
             Overlay.modal: Rectangle { color: Qt.alpha(Color.background, .75) }
             contentItem: ColumnLayout {
                 spacing: Style.space(16)
                 Text { text: "Add tab"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body + 4 }
-                Text { text: "Keep notes for a URL, file or folder alongside this app's notes."; Layout.fillWidth: true; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
+                Text { text: "Name"; Layout.fillWidth: true; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
                 TextField {
-                    id: resource
-                    objectName: "tabResource"
+                    id: tabName
+                    objectName: "tabName"
                     Layout.fillWidth: true
-                    placeholderText: "https://… or /path/to/file"
-                    Accessible.name: "URL, file or folder path"
+                    placeholderText: "Ideas, Research, To-do…"
+                    maximumLength: 120
+                    Accessible.name: "Name"
                     enabled: !root.tabBusy
                     color: Color.foreground; placeholderTextColor: Qt.alpha(Color.foreground, .55)
                     selectionColor: Qt.alpha(Color.accent, .3); selectedTextColor: Color.foreground
                     font.family: Style.font.family; font.pixelSize: Style.font.body
                     padding: Style.space(10)
-                    background: Rectangle { color: Qt.alpha(Color.foreground, .04); radius: 4; border.width: 1; border.color: resource.activeFocus ? Color.accent : Qt.alpha(Color.foreground, .2) }
+                    background: Rectangle { color: Qt.alpha(Color.foreground, .04); radius: 4; border.width: 1; border.color: tabName.activeFocus ? Color.accent : Qt.alpha(Color.foreground, .2) }
                     onAccepted: root.addTab()
                 }
                 Text { text: root.tabError; visible: text.length > 0; Layout.fillWidth: true; wrapMode: Text.Wrap; color: Color.urgent; font.pixelSize: Style.font.body }
@@ -392,13 +421,14 @@ Item {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
                     Action { text: "Cancel"; enabled: !root.tabBusy; onClicked: addTabDialog.close() }
-                    Action { text: root.tabBusy ? "Adding…" : "Add tab"; selected: true; enabled: !root.tabBusy && resource.text.trim().length > 0; onClicked: root.addTab() }
+                    Action { text: root.tabBusy ? "Adding…" : "Add tab"; selected: true; enabled: !root.tabBusy && tabName.text.trim().length > 0; onClicked: root.addTab() }
                 }
             }
         }
         Rectangle {
             id: paper
-            enabled: !addTabDialog.opened
+            objectName: "notesSurface"
+            enabled: root.opened && !addTabDialog.opened
             anchors.fill: parent
             color: Color.background
             radius: Style.cornerRadius
@@ -407,14 +437,12 @@ Item {
             clip: true
             opacity: root.reveal
             scale: root.config.reducedMotion ? 1 : .99 + root.reveal * .01
-            Behavior on opacity { NumberAnimation { duration: root.config.reducedMotion ? 70 : 200; easing.type: Easing.InOutCubic } }
-            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.InOutCubic } }
 
             ScreencopyView {
                 id: capture
                 objectName: "sourceCapture"
                 anchors.fill: parent
-                captureSource: root.opened && root.sourceToplevel ? root.sourceToplevel.wayland : null
+                captureSource: (root.opened || root.closing) && root.sourceToplevel ? root.sourceToplevel.wayland : null
                 live: false
                 paintCursor: false
                 visible: false
@@ -447,32 +475,31 @@ Item {
                     Action { text: "×"; Accessible.name: "Close notes"; onClicked: root.closeAndReturn() }
                 }
                 Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Qt.alpha(Color.foreground, .12) }
-                Flow {
+                RowLayout {
                     visible: root.page === "note"
                     Layout.fillWidth: true
-                    spacing: 4
-                    Repeater {
-                        model: root.scopes
-                        Action {
-                            required property var modelData
-                            required property int index
-                            text: modelData.label || modelData.title
-                            shortcut: index < 9 ? "Alt+" + (index + 1) : ""
-                            selected: root.selectedScope === index
-                            width: Math.min(implicitWidth, 280, surface.width - 40)
-                            onClicked: root.selectScope(index, true)
+                    spacing: Style.space(8)
+                    Flow {
+                        id: scopeTabs
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        Layout.preferredWidth: 0
+                        spacing: 4
+                        Repeater {
+                            model: root.scopes
+                            Action {
+                                required property var modelData
+                                required property int index
+                                text: modelData.label || modelData.title
+                                shortcut: index < 9 ? "Alt+" + (index + 1) : ""
+                                selected: root.selectedScope === index
+                                width: Math.min(implicitWidth, 280, scopeTabs.width)
+                                onClicked: root.selectScope(index, true)
+                            }
                         }
+                        Action { text: "+"; Accessible.name: "Add tab"; tooltip: "Add tab"; shortcut: "Ctrl+T"; enabled: !!root.sourceWindow && !!root.sourceWindow.address && !root.tabBusy; onClicked: root.showAddTab() }
                     }
-                    Action { text: "+"; Accessible.name: "Add tab"; tooltip: "Add tab"; shortcut: "Ctrl+T"; enabled: !!root.sourceWindow && !!root.sourceWindow.address && !root.tabBusy; onClicked: root.showAddTab() }
-                    Action { text: "Remove tab"; tooltip: "Remove tab · Notes stay in All notes"; shortcut: "Ctrl+Shift+Delete"; visible: !!root.currentScope && !!root.currentScope.customTab; enabled: !root.tabBusy; onClicked: root.removeTab() }
-                }
-                Text {
-                    visible: root.page === "note" && root.note !== null && root.note.meta.scope.kind !== "app"
-                    Layout.fillWidth: true
-                    text: root.note ? (root.note.meta.scope.locator || root.note.meta.title) : ""
-                    color: Qt.alpha(Color.foreground, .65)
-                    font.family: Style.font.family; font.pixelSize: Style.font.caption
-                    elide: Text.ElideMiddle
+                    Action { Layout.alignment: Qt.AlignRight | Qt.AlignTop; text: "Remove tab"; tooltip: "Remove tab · Notes stay in All notes"; shortcut: "Ctrl+Shift+Delete"; visible: !!root.currentScope && !!root.currentScope.customTab; enabled: !root.tabBusy; onClicked: root.removeTab() }
                 }
                 Loader {
                     id: editorLoader
@@ -506,7 +533,7 @@ Item {
                             required property var modelData
                             width: ListView.view.width
                             highlighted: ListView.isCurrentItem
-                            text: modelData.title + "  ·  " + modelData.scope.kind
+                            text: modelData.title + "  ·  " + (modelData.scope.app || modelData.scope.kind)
                             onClicked: root.loadNote(modelData.id)
                         }
                     }
@@ -539,7 +566,7 @@ Item {
                         readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap
                         color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body
                         background: null
-                        text: "Keyboard shortcuts\n\nSuper+Alt+N   Open / close notes for the focused app\nEscape   Close and return to source\nCtrl+E   Notes / focus editor\nCtrl+Shift+F   Search all notes\nCtrl+,   Settings\nF1   This shortcut guide\n\nCtrl+T   Add a URL, file or folder tab\nCtrl+Shift+Delete   Remove selected custom tab (keep notes)\nAlt+1…9   Select scope tab\nCtrl+Tab / Ctrl+Shift+Tab   Next / previous scope\nCtrl+Shift+P   Preview / edit\nCtrl+Shift+S   Snapshot source window\nCtrl+O   Open in Omawrite / reload note\nCtrl+Shift+O   Open source\nCtrl+S   Retry saving (normal edits autosave)\nCtrl+R   Retry a blocked save\n\nCtrl+B / Ctrl+I   Bold / italic\nCtrl+V   Paste text or image\nCtrl+Z / Ctrl+Shift+Z   Undo / redo\nTab / Shift+Tab   Move between controls\nSpace / Enter   Activate focused control\n\nAll notes: type to search, Down then arrows to choose, Enter to open. Alt+1…9 recovers the corresponding draft.\n\nSettings\nAlt+M   Move collection\nAlt+U   Use this folder\n"
+                        text: "Keyboard shortcuts\n\nSuper+Alt+N   Open / close notes for the focused app\nEscape   Close and return to source\nCtrl+E   Notes / focus editor\nCtrl+Shift+F   Search all notes\nCtrl+,   Settings\nF1   This shortcut guide\n\nCtrl+T   Add a named note tab\nCtrl+Shift+Delete   Remove selected custom tab (keep notes)\nAlt+1…9   Select scope tab\nCtrl+Tab / Ctrl+Shift+Tab   Next / previous scope\nCtrl+Shift+P   Preview / edit\nCtrl+Shift+S   Snapshot source window\nCtrl+O   Open in Omawrite / reload note\nCtrl+S   Retry saving (normal edits autosave)\nCtrl+R   Retry a blocked save\n\nCtrl+B / Ctrl+I   Bold / italic\nCtrl+V   Paste text or image\nCtrl+Z / Ctrl+Shift+Z   Undo / redo\nTab / Shift+Tab   Move between controls\nSpace / Enter   Activate focused control\n\nAll notes: type to search, Down then arrows to choose, Enter to open. Alt+1…9 recovers the corresponding draft.\n\nSettings\nAlt+M   Move collection\nAlt+U   Use this folder\n"
                     }
                 }
                 Text { visible: root.failure.length > 0; text: root.failure; color: Color.urgent; wrapMode: Text.Wrap; Layout.fillWidth: true; font.family: Style.font.family; font.pixelSize: Style.font.body }
@@ -553,7 +580,6 @@ Item {
                         spacing: 4
                         Action { text: root.preview ? "Edit" : "Preview"; shortcut: "Ctrl+Shift+P"; visible: root.capabilities.preview === true; selected: root.preview; onClicked: { root.preview = !root.preview; if (root.editor) root.editor.focusEditor() } }
                         Action { text: root.snapshotJob ? "Capturing…" : "Snapshot"; shortcut: "Ctrl+Shift+S"; visible: root.capabilities.images === true; enabled: root.note !== null && !root.externalEditing && root.snapshotJob === null; onClicked: root.snapshotImage() }
-                        Action { text: "Open source"; shortcut: "Ctrl+Shift+O"; visible: root.note !== null && /^(https?|file):/.test(root.note.meta.scope.locator || ""); onClicked: root.request("reopen", {locator:root.note.meta.scope.locator}) }
                         Action { text: root.externalEditing ? "Reload note" : "Open in Omawrite"; shortcut: "Ctrl+O"; visible: root.capabilities.omawrite === true; enabled: root.note !== null; onClicked: {
                             if (root.externalEditing) root.loadNote(root.note.meta.id)
                             else root.saveThen(function() { root.request("external", {noteId:root.note.meta.id}, function() { root.externalEditing = true }) })

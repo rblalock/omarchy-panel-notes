@@ -74,6 +74,46 @@ class Store:
         return {"meta": meta, "text": body, "revision": digest(body),
                 "path": str(directory / body_name), "baseUrl": directory.as_uri() + "/"}
 
+    def adopt_named_tabs(self, scopes):
+        """Retain old note IDs; split formerly shared resources into app-owned notes.
+
+        Each metadata update/clone is atomic and keyed by the destination scope,
+        so an interrupted migration can retry without duplicating completed work.
+        """
+        if not scopes: return
+        with self.lock():
+            records = []
+            for path in self.directories():
+                try:
+                    meta = json.loads(path.read_text())
+                    if isinstance(meta, dict) and isinstance(meta.get('scope'), dict): records.append((path, meta))
+                except (OSError, ValueError): continue
+            for scope in scopes:
+                if any(meta['scope'].get('key') == scope['key'] for _, meta in records): continue
+                old = next(((path, meta) for path, meta in records if meta['scope'].get('key') == scope['legacyKey'] or meta.get('legacyScope', {}).get('key') == scope['legacyKey']), None)
+                if old is None: continue  # A tab can exist before its note was created.
+                path, meta = old
+                self.load(meta['id'])  # Validate the source before moving its identity.
+                updated = {**meta, 'scope':scope, 'title':scope['title'],
+                           'legacyScope':meta.get('legacyScope', meta['scope']),
+                           'legacyTitle':meta.get('legacyTitle', meta['title'])}
+                if meta['scope'].get('key') == scope['legacyKey']:
+                    atomic(path, json.dumps(updated, indent=2))
+                    records[records.index(old)] = (path, updated)
+                else:
+                    # A second app previously shared this note. Give it an independent
+                    # copy including relative images; publish only a complete folder.
+                    note_id = uuid.uuid4().hex
+                    updated['id'] = note_id
+                    label = re.sub(r"[^\w-]+", "-", scope['title']).strip('-')[:60] or 'note'
+                    destination = self.root / 'notes' / (label + '--' + note_id)
+                    with tempfile.TemporaryDirectory(prefix='.named-tab-', dir=self.root/'notes') as temporary:
+                        staged = Path(temporary) / 'copy'
+                        shutil.copytree(path.parent, staged, symlinks=True)
+                        atomic(staged/'note.json', json.dumps(updated, indent=2))
+                        staged.rename(destination)
+                    records.append((destination/'note.json', updated))
+
     def for_scope(self, scope, content_type="markdown"):
         with self.lock():
             for path in self.directories():

@@ -99,25 +99,32 @@ class Contracts(unittest.TestCase):
         self.source = {'app':'test.app', 'title':'same title'}
         self.registry = Registry([PROJECT / 'providers', PROJECT / 'content'])
 
-    def test_same_name_files_and_canonical_paths(self):
-        first = self.base / 'a/note.md'; second = self.base / 'b/note.md'
-        for path in (first, second): path.parent.mkdir(); path.write_text('')
-        a = self.registry.resolve(self.source, {'file':str(first)})['scopes'][-1]
-        b = self.registry.resolve(self.source, {'file':str(second)})['scopes'][-1]
-        self.assertNotEqual(a['key'], b['key'])
-        alias = self.base / 'alias.md'; alias.symlink_to(first)
-        self.assertEqual(a['key'], self.registry.resolve(self.source, {'file':str(alias)})['scopes'][-1]['key'])
-        first.unlink()
-        self.assertEqual(len(self.registry.resolve(self.source, {'file':str(first)})['scopes']), 1)
+    def test_bundled_providers_do_not_launch_processes(self):
+        with patch('core.registry.subprocess.run', side_effect=AssertionError('Unexpected process')):
+            result = self.registry.resolve(self.source, {'name':'Ideas'})
+        self.assertEqual([scope['kind'] for scope in result['scopes']], ['app','named'])
+        self.assertEqual(result['errors'], [])
 
-    def test_page_query_fragment_and_profile_identity(self):
-        def keys(url, partition='a'):
-            return [s['key'] for s in self.registry.resolve(self.source, {'url':url, 'partition':partition})['scopes']]
-        a = keys('https://example.org/path?q=1#view')
-        b = keys('https://example.org/path?q=2#view')
-        self.assertEqual(a[1], b[1]); self.assertNotEqual(a[2], b[2])
-        self.assertNotEqual(a[2], keys('https://example.org/path?q=1#view', 'b')[2])
-        self.assertEqual(len(keys('https://user:password@example.org/')), 1)
+    def test_external_provider_cannot_claim_inline_execution_by_id(self):
+        p = self.base / 'external'; p.mkdir()
+        (p / 'extension.json').write_text(json.dumps({'apiVersion':1, 'id':'panel-notes.app', 'kind':'context', 'entry':'provider.py'}))
+        (p / 'provider.py').write_text("def resolve(source, context):\n return [{'key':'external:1','kind':'object','title':'External'}]\n")
+        registry = Registry([self.base])
+        import subprocess
+        with patch('core.registry.subprocess.run', wraps=subprocess.run) as run:
+            result = registry.resolve(self.source, {})
+        self.assertEqual(result['scopes'][0]['key'], 'external:1')
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.kwargs['timeout'], .5)
+
+    def test_named_identity_is_app_scoped_and_normalized(self):
+        def named(app, name):
+            return self.registry.resolve({'app':app}, {'name':name})['scopes'][-1]
+        first = named('one.app', ' Ideas ')
+        self.assertEqual(first['key'], named('one.app','ideas')['key'])
+        self.assertNotEqual(first['key'], named('other.app','Ideas')['key'])
+        self.assertEqual(named('one.app','Café')['key'], named('one.app','Cafe\u0301')['key'])
+        self.assertNotIn('locator', first)
 
     def test_separate_provider_and_content_registration(self):
         p = self.base / 'custom'; p.mkdir()
@@ -172,14 +179,14 @@ class BackendContracts(unittest.TestCase):
 
     def test_custom_tabs_add_remove_persist_and_keep_notes(self):
         with patch('core.backend.snapshot', return_value=self.source):
-            first = self.backend.dispatch({'op':'add-tab', 'value':'https://example.com/one'})
+            first = self.backend.dispatch({'op':'add-tab', 'name':'Ideas'})
             scope = next(s for s in first['scopes'] if s.get('customTab'))
             note = self.backend.dispatch({'op':'scope', 'scope':scope})
             self.backend.dispatch({'op':'save', 'noteId':note['meta']['id'], 'writerId':note['writerId'],
                                    'revision':note['revision'], 'sequence':1, 'text':'Keep this thought'})
-            second = self.backend.dispatch({'op':'add-tab', 'value':'https://example.com/two'})
+            second = self.backend.dispatch({'op':'add-tab', 'name':'Research'})
             self.assertEqual(len([s for s in second['scopes'] if s.get('customTab')]), 2)
-            duplicate = self.backend.dispatch({'op':'add-tab', 'value':'https://example.com/one'})
+            duplicate = self.backend.dispatch({'op':'add-tab', 'name':'Ideas'})
             self.assertEqual(len(duplicate['scopes']), 3)
             restarted = Backend(self.base/'runtime')
             reopened = restarted.dispatch({'op':'open', 'address':'0xabc'})
@@ -187,24 +194,63 @@ class BackendContracts(unittest.TestCase):
             removed = restarted.dispatch({'op':'remove-tab', 'key':scope['key']})
             self.assertNotIn(scope['key'], [s['key'] for s in removed['scopes']])
             self.assertEqual(restarted.store.load(note['meta']['id'])['text'], 'Keep this thought')
-            again = restarted.dispatch({'op':'add-tab', 'value':'https://example.com/one'})
+            again = restarted.dispatch({'op':'add-tab', 'name':'Ideas'})
             restored = restarted.dispatch({'op':'scope', 'scope':next(s for s in again['scopes'] if s['key']==scope['key'])})
             self.assertEqual(restored['meta']['id'], note['meta']['id'])
         with patch('core.backend.snapshot', return_value={**self.source, 'app':'different'}):
             self.assertEqual(len(self.backend.dispatch({'op':'open', 'address':'0xabc'})['scopes']), 1)
 
-    def test_custom_tab_validation_paths(self):
-        file = self.base/'a file.md'; file.write_text('Source stays untouched')
+    def test_named_tab_validation_and_literal_names(self):
         with patch('core.backend.snapshot', return_value=self.source):
-            for value in ('nope', 'https://', 'https://user:password@example.com', '/missing-panel-notes-file'):
-                with self.assertRaises(ValueError): self.backend.dispatch({'op':'add-tab', 'value':value})
+            for invalid in ('', '   ', 'x'*121, 'line\nbreak', None):
+                with self.assertRaises(ValueError): self.backend.dispatch({'op':'add-tab','name':invalid})
             with self.assertRaises(ValueError):
-                self.backend.dispatch({'op':'add-tab', 'value':str(file), 'expected':{'pid':999}})
-            result = self.backend.dispatch({'op':'add-tab', 'value':str(file)})
-            self.assertEqual(result['scopes'][-1]['kind'], 'file')
-            folder = self.backend.dispatch({'op':'add-tab', 'value':str(self.base)})
-            self.assertEqual(folder['scopes'][-1]['kind'], 'directory')
-        self.assertEqual(file.read_text(), 'Source stays untouched')
+                self.backend.dispatch({'op':'add-tab','name':'Ideas','expected':{'pid':999}})
+            for name in ('Project ideas', 'To-do', '/not/a/real/file', 'example.com'):
+                result = self.backend.dispatch({'op':'add-tab','name':name})
+                self.assertEqual(result['scopes'][-1]['kind'],'named')
+                self.assertEqual(result['scopes'][-1]['label'],name)
+                self.assertNotIn('locator',result['scopes'][-1])
+
+    def test_resource_tabs_migrate_without_losing_notes_or_images(self):
+        legacy = {'key':'url:https://example.com/', 'kind':'page', 'title':'https://example.com/', 'label':'example.com', 'locator':'https://example.com/'}
+        note = self.backend.store.for_scope(legacy)
+        asset = self.backend.store.import_asset(note['meta']['id'], b'\x89PNG\r\n\x1a\nfixture','png')
+        body = 'Keep this thought\n' + asset['markdown']
+        self.backend.store.save(note['meta']['id'],body,note['revision'])
+        self.backend.tabs_path.write_text(json.dumps({'editor':[legacy],'browser':[legacy]}))
+        tabs = self.backend.custom_tabs()
+        first = self.backend.store.for_scope(tabs['editor'][0])
+        second = self.backend.store.for_scope(tabs['browser'][0])
+        self.assertEqual(first['meta']['id'],note['meta']['id'])
+        self.assertNotEqual(first['meta']['id'],second['meta']['id'])
+        for copied in (first,second):
+            self.assertEqual(copied['text'],body)
+            self.assertEqual(copied['meta']['scope']['kind'],'named')
+            self.assertTrue((Path(copied['path']).parent/asset['path']).exists())
+            self.assertNotIn('locator',copied['meta']['scope'])
+        self.backend.store.save(first['meta']['id'],'Independent now',first['revision'])
+        self.assertEqual(self.backend.store.load(second['meta']['id'])['text'],body)
+        restarted = Backend(self.base/'runtime')
+        self.assertEqual(restarted.custom_tabs(),tabs)
+        self.assertEqual(len(restarted.store.directories()),2)
+
+    def test_tab_migration_retries_after_interrupted_config_write(self):
+        legacy = {'key':'file:/one/note.md','kind':'file','title':'note.md','label':'note.md'}
+        other = {**legacy,'key':'file:/two/note.md'}
+        for scope in (legacy,other):self.backend.store.for_scope(scope)
+        original={'editor':[legacy,other]}
+        self.backend.tabs_path.write_text(json.dumps(original))
+        from core.backend import atomic
+        def fail(path,data):
+            if path==self.backend.tabs_path:raise OSError('Interrupted tab config write')
+            return atomic(path,data)
+        with patch('core.backend.atomic',side_effect=fail),self.assertRaises(OSError):self.backend.custom_tabs()
+        self.assertEqual(json.loads(self.backend.tabs_path.read_text()),original)
+        restarted=Backend(self.base/'runtime')
+        tabs=restarted.custom_tabs()['editor']
+        self.assertEqual([tab['label'] for tab in tabs],['note.md','note.md (2)'])
+        self.assertEqual(len(restarted.store.directories()),2)
 
     def test_app_note_identity_across_windows_and_restart(self):
         with patch('core.backend.snapshot', return_value=self.source):

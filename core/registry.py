@@ -1,3 +1,4 @@
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -9,6 +10,9 @@ class Registry:
     """Explicit local extension packages. Executable providers are trusted code."""
     def __init__(self, roots):
         self.providers = []
+        self.inline = {}
+        bundled = Path(__file__).resolve().parent.parent / "providers"
+        inline_paths = {(bundled / name / "provider.py").resolve() for name in ("app", "named")}
         self.content = {}
         self.errors = []
         seen = set()
@@ -26,7 +30,15 @@ class Registry:
                         entry = path.parent / manifest["entry"]
                         if not entry.resolve().is_relative_to(path.parent.resolve()) or not entry.is_file():
                             raise ValueError("Invalid provider entry")
-                        self.providers.append((identity, entry.resolve()))
+                        entry = entry.resolve()
+                        # Only the two shipped, bounded resolvers run in-process.
+                        # An external package cannot opt into this by copying its ID.
+                        if entry in inline_paths:
+                            spec = importlib.util.spec_from_file_location('panel_notes_' + entry.parent.name, entry)
+                            module = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(module)
+                            self.inline[entry] = module.resolve
+                        self.providers.append((identity, entry))
                     elif manifest["kind"] == "content":
                         content_type = manifest["type"]
                         if content_type in self.content:
@@ -44,11 +56,14 @@ class Registry:
         scopes, errors = [], []
         for identity, entry in self.providers:
             try:
-                run = subprocess.run([sys.executable, '-B', str(Path(__file__).with_name('provider_worker.py')), str(entry)],
-                                     input=json.dumps({'source': source, 'context': context}), text=True,
-                                     capture_output=True, timeout=.5, check=True)
-                if len(run.stdout) > 131072: raise ValueError('Provider response exceeds 128 KB')
-                result = json.loads(run.stdout)
+                if entry in self.inline:
+                    result = self.inline[entry](source, context)
+                else:
+                    run = subprocess.run([sys.executable, '-B', str(Path(__file__).with_name('provider_worker.py')), str(entry)],
+                                         input=json.dumps({'source': source, 'context': context}), text=True,
+                                         capture_output=True, timeout=.5, check=True)
+                    if len(run.stdout) > 131072: raise ValueError('Provider response exceeds 128 KB')
+                    result = json.loads(run.stdout)
                 if not isinstance(result, list) or len(result) > 12:
                     raise ValueError("Provider must return at most 12 scopes")
                 for scope in result:

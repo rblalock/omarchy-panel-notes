@@ -1,6 +1,6 @@
 # Local delivery verification
 
-> Current scope: App notes and custom resource tabs. The historical app-adapter
+> Current scope: App notes and named note tabs under each app. The historical app-adapter
 > results below do not describe the installed product; all bundled integrations
 > were removed in the latest September 9 review. Current evidence is appended.
 
@@ -235,3 +235,59 @@ Native checks pass in `.test-output/tabs-1788978390/` and
 `.test-output/presentation-1788978393/`: add/remove/restore custom tabs, dialog
 shortcuts, Markdown preview, note source preservation, fresh snapshots and
 wide/narrow layouts. Neither native run emitted QML warnings.
+
+## Subtle depth animation
+
+`scripts/check-motion` passes eight native checks in
+`.test-output/motion-1788978790/`. Frame samples show intermediate entrance and
+exit progress. Exit retains a visible surface with an empty input mask and no
+keyboard focus; typing immediately after dismissal reaches the source document
+and leaves notes unchanged. Reopening interrupts exit safely. Explicit lifecycle
+close and actual source resize bypass exit animation. The existing reduced-motion
+preference remains compatible. The first test run needed a correction to focus
+the disposable source TextArea; the final run passes with no QML warnings.
+
+## Opening latency
+
+Baseline: `.test-output/opening-1788979086/timings.json`. Initial opening first
+frame 171 ms, repeat median 84 ms (eight repetitions); settled at 361/273.5 ms.
+After warming the service and loading the two bundled resolvers in-process:
+`.test-output/opening-1788979192/timings.json`: initial first frame 70 ms, repeat
+median 58 ms; settled at 260/248 ms. The 200 ms animations are unchanged.
+
+Measurement starts immediately before launching the native test's `qs ipc`
+opening command and ends on the backing QQuickWindow's first `frameSwapped`
+with nonzero opacity. It includes IPC invocation, window/resource resolution,
+QML/rendering and the initial animation tick. It excludes the installed global
+shortcut/Python launcher path and physical display scanout; these are local test
+samples, not a guarantee for every workload.
+
+The service reports ready before the first invocation in the optimized run. A
+forced service shutdown/reopen restores the same saved note and identity; the
+expected PeerClosedError warning corresponds to that intentional shutdown.
+Custom-tab and motion checks pass in `.test-output/tabs-1788979197/` and
+`.test-output/motion-1788979199/`. Twenty backend tests plus Markdown, syntax and
+package checks pass. Tests prove bundled lookups spawn no workers while an
+external provider claiming a bundled ID still runs under the 500 ms timeout.
+
+## Bare website addresses
+
+Twenty-one backend tests plus Markdown/syntax/package checks pass. New cases
+cover bare domains, paths/query/fragments, localhost/ports, HTTPS deduplication
+and invalid inputs. In `.test-output/tabs-1788979988/`, five native checks pass,
+including bare-domain Enter submission, independent tabs, removal and restoring
+the same note using the full HTTPS URL. The later, unrelated Settings screenshot
+step stopped at its focus guard; it is not counted as a fully passing native run.
+
+## Named tabs under apps
+
+Twenty-one backend tests plus Markdown, QML syntax and package checks pass.
+Coverage includes app-scoped/case-normalized/Unicode names, plain literal labels,
+empty/oversized/control-character validation, preserved note IDs and assets during
+legacy-tab migration, independent copies of formerly shared notes, collision
+handling and retry after an interrupted configuration write.
+
+`.test-output/tabs-1788980531/` passes seven native checks: Ctrl+T/Escape, empty
+name handling, Enter adding an independent named note, remembering the selected
+note on reopen, removal, restoration and simplified Settings. The Name dialog
+and tab layout were inspected. No QML warnings were emitted.

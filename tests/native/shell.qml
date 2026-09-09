@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import qs.Commons
 import "Notes"
 
@@ -12,13 +13,27 @@ ShellRoot {
         for (var child of node.children || []) { var found = captureView(child); if (found) return found }
         return null
     }
+    property var motionSamples: []
+    function sampleMotion() { return {time:Date.now(), reveal:notes.reveal, opened:notes.opened, closing:notes.closing, visible:notes.panelWindow.visible, masked:notes.panelWindow.mask !== null, keyboard:notes.panelWindow.WlrLayershell.keyboardFocus} }
+    Connections { target: notes; function onRevealChanged() { test.motionSamples.push(test.sampleMotion()) } }
+    property double openingStarted: 0
+    property double firstFrameAt: 0
+    property double settledAt: 0
+    Connections {
+        target: notes.panelWindow.contentItem.Window.window
+        function onFrameSwapped() {
+            if (!test.openingStarted || !notes.opened || notes.reveal <= 0) return
+            if (!test.firstFrameAt) test.firstFrameAt = Date.now()
+            if (!test.settledAt && notes.reveal === 1) test.settledAt = Date.now()
+        }
+    }
     Panel { id: notes }
     FloatingWindow {
         id: first
         title: "Panel Notes native source"
         visible: true; implicitWidth: 800; implicitHeight: 650
         color: "#26352b"
-        TextArea { id: firstInput; anchors.fill: parent; text: "A source document for Panel Notes\n\nThis is disposable native test content."; color: "#eeeeee"; font.pixelSize: 22; padding: 30; background: null }
+        TextArea { id: firstInput; focus: true; anchors.fill: parent; text: "A source document for Panel Notes\n\nThis is disposable native test content."; color: "#eeeeee"; font.pixelSize: 22; padding: 30; background: null }
     }
     FloatingWindow {
         id: second
@@ -33,9 +48,17 @@ ShellRoot {
     }
     IpcHandler {
         target: "test"
+        function timedOpen(started: string): void {
+            test.openingStarted = Number(started); test.firstFrameAt = 0; test.settledAt = 0
+            notes.open(JSON.stringify({force:true}))
+        }
+        function opening(): string { return JSON.stringify({started:test.openingStarted, firstFrame:test.firstFrameAt, settled:test.settledAt, serviceReady:notes.serviceReady}) }
         function open(address: string): void { notes.open(JSON.stringify({address:address, force:true})) }
+        function dismiss(): void { test.motionSamples = []; notes.closeAndReturn() }
+        function motion(): string { return JSON.stringify({current:test.sampleMotion(), samples:test.motionSamples}) }
+        function resetMotion(): void { test.motionSamples = [] }
         function close(): void { notes.close() }
-        function state(): string { return JSON.stringify({panel:JSON.parse(notes.inspect()), text:notes.body, editorText:notes.editor ? notes.editor.input.text : "", neighbor:secondInput.text, clicks:second.clicks, capture:notes.sourceToplevel !== null, captureReady:test.captureView(notes.panelWindow.contentItem).hasContent, width:notes.panelWindow.width, height:notes.panelWindow.height}) }
+        function state(): string { return JSON.stringify({panel:JSON.parse(notes.inspect()), text:notes.body, editorText:notes.editor ? notes.editor.input.text : "", neighbor:secondInput.text, sourceText:firstInput.text, clicks:second.clicks, capture:notes.sourceToplevel !== null, captureReady:test.captureView(notes.panelWindow.contentItem).hasContent, width:notes.panelWindow.width, height:notes.panelWindow.height}) }
         function snapshot(): void { notes.snapshotImage() }
         function sourceColor(value: string): void { first.color = value }
         function typography(): string { return JSON.stringify({width:notes.editor.width, column:notes.editor.writingWidth, gutter:notes.editor.gutter, font:notes.editor.input.font.pixelSize, x:notes.editor.input.mapToItem(notes.editor,0,0).x}) }

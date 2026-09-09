@@ -6,7 +6,6 @@ import subprocess
 import threading
 import time
 import uuid
-from urllib.parse import urlsplit
 
 from .registry import Registry
 from .session import snapshot, changed, focus, environment, hypr
@@ -28,6 +27,7 @@ class Backend:
         self.settings_cache_path = self.recovery.parent / 'settings.json'
         self.preferences_path = self.recovery.parent / 'preferences.json'
         self.tabs_path = self.recovery.parent / 'custom-tabs.json'
+        self.migrated_tabs = None
         try: self.preferences = json.loads(self.preferences_path.read_text())
         except (OSError, ValueError): self.preferences = {}
         self.store = Store(self.settings().get("notesRoot", str(Path.home() / "Documents/Panel Notes")), self.recovery)
@@ -55,13 +55,39 @@ class Backend:
         return (source["session"], source["address"], source["pid"])
 
     def custom_tabs(self):
-        try: return json.loads(self.tabs_path.read_text())
-        except FileNotFoundError: return {}
+        with self.lock:
+            try: tabs = json.loads(self.tabs_path.read_text())
+            except FileNotFoundError: return {}
+            converted = {}
+            for app, entries in tabs.items():
+                converted[app] = []
+                used = {tab['key'] for tab in entries if tab['kind'] == 'named'}
+                for tab in entries:
+                    if tab['kind'] == 'named':
+                        converted[app].append(tab); continue
+                    name = tab.get('label') or tab['title']
+                    suffix = 1
+                    while True:
+                        label = name if suffix == 1 else name + ' (' + str(suffix) + ')'
+                        scope = next(s for s in self.registry.resolve({'app':app}, {'name':label})['scopes'] if s['kind']=='named')
+                        if scope['key'] not in used: break
+                        suffix += 1
+                    used.add(scope['key'])
+                    converted[app].append({**scope, 'legacyKey':tab['key']})
+            token = (str(self.store.root), json.dumps(converted, sort_keys=True))
+            if token != self.migrated_tabs:
+                self.store.adopt_named_tabs([tab for entries in converted.values() for tab in entries if tab.get('legacyKey')])
+                if converted != tabs:
+                    backup = self.tabs_path.with_name('custom-tabs.before-names.json')
+                    if not backup.exists(): atomic(backup, json.dumps(tabs, indent=2))
+                    atomic(self.tabs_path, json.dumps(converted, indent=2))
+                self.migrated_tabs = token
+            return converted
 
     def resolve_tabs(self, source):
         result = self.registry.resolve(source, {})
         for tab in self.custom_tabs().get(source['app'], []):
-            # Deduplicate resource identity while keeping custom tab labels.
+            # Keep one entry per app-owned note identity.
             result['scopes'] = [scope for scope in result['scopes'] if scope['key'] != tab['key']]
             result['scopes'].append({**tab, 'customTab': True})
         return {'source': source, **result}
@@ -74,23 +100,12 @@ class Backend:
             tabs = self.custom_tabs()
             current = tabs.get(source['app'], [])
             if request['op'] == 'add-tab':
-                value = request.get('value', '').strip()
-                if not value or len(value) > 8192:
-                    raise ValueError('Enter a URL or an absolute file or folder path.')
-                if value.lower().startswith(('http:', 'https:')):
-                    context, kind = {'url': value}, 'page'
-                else:
-                    path = Path(value).expanduser()
-                    if not path.is_absolute() or not path.exists():
-                        raise ValueError('Enter an existing absolute file or folder path, or an https:// URL.')
-                    context, kind = ({'cwd': str(path)}, 'directory') if path.is_dir() else ({'file': str(path)}, 'file')
-                resolved = self.registry.resolve(source, context)
-                tab = next((scope for scope in resolved['scopes'] if scope['kind'] == kind), None)
-                if not tab:
-                    raise ValueError('That resource could not be opened. Check the URL or path.')
-                if kind == 'page':
-                    url = urlsplit(tab['locator'])
-                    tab['label'] = url.netloc + (url.path.rstrip('/') or '') + ('?' + url.query if url.query else '') + ('#' + url.fragment if url.fragment else '')
+                name = request.get('name', '')
+                if not isinstance(name, str) or not name.strip() or len(name.strip()) > 120 or any(ord(c) < 32 or ord(c) == 127 for c in name):
+                    raise ValueError('Enter a name between 1 and 120 characters.')
+                resolved = self.registry.resolve(source, {'name':name})
+                tab = next((scope for scope in resolved['scopes'] if scope['kind'] == 'named'), None)
+                if not tab: raise ValueError('Could not create this note tab.')
                 if not any(item['key'] == tab['key'] for item in current): current = [*current, tab]
                 selected = tab['key']
             else:
@@ -104,7 +119,7 @@ class Backend:
     def dispatch(self, request):
         op = request.get("op")
         if op == "hello":
-            return {"settings": {**self.settings(), 'scopeKinds':self.preferences}, "root": str(self.store.root),
+            return {"settings": {**self.settings(), 'scopeKeys':self.preferences}, "root": str(self.store.root),
                     "content": self.registry.content, "extensionErrors": self.registry.errors,
                     "recoveries": self.store.recoveries()}
         if op in ("add-tab", "remove-tab"):
@@ -132,7 +147,7 @@ class Backend:
             return {}
         if op == 'preference':
             with self.lock:
-                self.preferences[request['app']] = request['kind']
+                self.preferences[request['app']] = request['key']
                 atomic(self.preferences_path, json.dumps(self.preferences))
             return {}
         if op == 'settings-cache':
@@ -185,13 +200,6 @@ class Backend:
             command = ["omawrite", note["path"]] if request.get("editor", True) else ["xdg-open", str(Path(note["path"]).parent)]
             subprocess.Popen(command, env=environment(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             return {"path": note["path"]}
-        if op == "reopen":
-            locator = request["locator"]
-            parsed = urlsplit(locator)
-            if parsed.scheme not in ("http", "https", "file") or parsed.username or parsed.password:
-                raise ValueError("This resource has no supported reopening action.")
-            subprocess.Popen(["xdg-open", locator], env=environment(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-            return {}
         if op == "clipboard-image":
             types = subprocess.run(["wl-paste", "--list-types"], env=environment(), capture_output=True, timeout=3, check=True).stdout.decode().splitlines()
             mime = next((x for x in ("image/png", "image/jpeg", "image/webp") if x in types), None)

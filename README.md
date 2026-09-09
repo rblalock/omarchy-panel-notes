@@ -1,6 +1,6 @@
 # Panel Notes
 
-Markdown notes attached to the app, page, file, or directory you are working with.
+Markdown notes organized under each app, with named tabs for your thoughts.
 An Omarchy shell plugin with a window-sized frosted surface. Notes stay visible
 when you use an adjacent app; moving or resizing their source hides the surface.
 
@@ -50,7 +50,6 @@ the checkout has no public marketplace release or remote update source.
   available under **All notes → Recover unsaved draft**. If the service disconnects,
   text stays in the editor; **Retry save** reconnects and checks for external conflicts.
 - **All notes** searches saved titles and text even after their sources close.
-  **Open source** deliberately opens the selected note's URL, file, or directory.
 - **Settings** chooses the notes folder. **Move collection**
   copies and verifies into an empty folder, retaining the original. **Use this
   folder** switches collections without deleting either one.
@@ -77,11 +76,10 @@ Shortcuts apply only while the notes panel has keyboard focus.
 | Select scope | Alt+1…9 |
 | Next / previous scope | Ctrl+Tab / Ctrl+Shift+Tab |
 | Preview / edit | Ctrl+Shift+P |
-| Add URL, file or folder tab | Ctrl+T |
+| Add a named note tab | Ctrl+T |
 | Remove selected custom tab (keep notes) | Ctrl+Shift+Delete |
 | Snapshot current source window | Ctrl+Shift+S |
 | Omawrite / reload external edits | Ctrl+O |
-| Open source | Ctrl+Shift+O |
 | Retry saving | Ctrl+S (also Ctrl+R when blocked) |
 | Bold / italic / paste | Ctrl+B / Ctrl+I / Ctrl+V |
 | Navigate controls / activate | Tab, Shift+Tab / Space, Enter |
@@ -90,23 +88,28 @@ Library: type to search; Down then arrow keys select a result, Enter opens it.
 Alt+1…9 recovers the corresponding recovery draft.
 Settings: Alt+M moves the collection; Alt+U switches folder. Normal edits autosave.
 
-## Custom tabs
+## Named tabs
 
-Click **+** beside App (Ctrl+T), enter an HTTPS URL or an existing absolute file
-or folder path, and press Enter. Each resource gets its own named tab. Custom tabs
-stay with the app across windows and restarts; they do not follow navigation.
-Adding the same resource again selects its existing tab.
+Click **+** beside App (Ctrl+T), enter a name such as **Ideas** or **Research**, and
+press Enter. Each tab contains one note under that app. Names are plain text,
+not URLs or filesystem paths. Tabs persist across windows and restarts.
 
-Select a custom tab and click **Remove tab** (Ctrl+Shift+Delete) to remove it from
-that app. Its saved notes remain in **All notes**; adding the resource again restores
-them. Notes for the same resource are shared across apps. Custom tab associations
-are stored in `~/.local/state/panel-notes/custom-tabs.json`, separately from the
-Markdown collection.
+The same name in different apps creates separate notes. Adding the same name
+again in one app selects its existing note (ignoring case and surrounding spaces).
+Select a tab and click **Remove tab** (Ctrl+Shift+Delete) to remove it from the app;
+its notes remain in **All notes**. Adding that name again restores them.
+
+Tab associations live in `~/.local/state/panel-notes/custom-tabs.json`; the note
+files stay in the configured collection. This is app-based organization in the
+panel, not a new hierarchy of operating-system folders.
+
+Old custom resource tabs are converted to named tabs with their content/images
+preserved. Previously shared resource notes become independent copies per app.
+A backup of the old tab configuration is kept as `custom-tabs.before-names.json`.
 
 ## Current scope and roadmap
 
-Panel Notes currently provides one note per app plus explicitly added URL, file
-and folder tabs. It does not detect active tabs, terminal directories, editor
+Panel Notes currently provides one default note per app plus named note tabs. It does not detect active tabs, terminal directories, editor
 files, browser pages or Slack channels. Changing the source app's internal tab
 does not change your notes.
 
@@ -119,7 +122,7 @@ then ship individually after native testing. The detailed review checklist is in
 ## Extensions and limits
 
 Providers and content modules share a versioned local registry, including the
-bundled App/resource providers and Markdown editor. See [docs/extensions.md](docs/extensions.md)
+bundled App/named-tab providers and Markdown editor. See [docs/extensions.md](docs/extensions.md)
 and `examples/`. Future content can be added without making the host a Markdown
 parser. This release does not embed browsers, drawing canvases, video, or agents.
 
@@ -127,8 +130,12 @@ The panel is a Wayland layer surface. Floating applications can pass underneath
 it; it does not inherit their stacking order. A source move, resize, fullscreen,
 workspace, close, or monitor change hides it, usually within the 180 ms geometry
 check interval. No original windows are transformed or retiled to simulate a flip.
-Opening uses a subtle scale/fade. Dismissal is immediate so no invisible input
-surface lingers. Reduced motion uses a short fade and an opaque background.
+The notes service warms up when the plugin loads, and the built-in App/named-tab
+lookups run without launching extra processes.
+Opening and explicit dismissal use a 200 ms fade with 1% scale movement.
+Dismissal releases keyboard and pointer input immediately while the exit finishes.
+Source geometry/lifecycle changes still hide it immediately. Reduced motion uses
+a short fade without scaling and an opaque background.
 
 Notes are limited to 4 MB, imported PNG/JPEG/WebP images to 25 MB. Preview does
 not automatically load remote images or execute HTML. Math, Mermaid, Obsidian
@@ -152,6 +159,8 @@ for the Markdown formatter.
 ./scripts/check-native
 ./scripts/check-tabs
 ./scripts/check-presentation
+./scripts/check-motion
+./scripts/check-opening
 ./scripts/check-installed-ui
 ./scripts/remove
 ```

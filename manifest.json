@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "Rick Blalock",
   "license": "MIT",
-  "description": "Notes attached to apps, pages, files and directories.",
+  "description": "Markdown notes organized into named tabs under each app.",
   "kinds": ["panel"],
   "keepLoaded": true,
   "entryPoints": { "panel": "Panel.qml" }

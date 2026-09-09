@@ -1,7 +1,7 @@
 # Panel Notes: product and implementation plan
 
-> Current scope (September 9, latest review): one note per app plus custom URL,
-> file and folder tabs. All bundled automatic app integrations and setup/bridge
+> Current scope (September 9, latest review): one default note per app plus named
+> note tabs under that app. URL/file/folder tab creation has been replaced. All bundled automatic app integrations and setup/bridge
 > commands have been removed. This supersedes the integration milestones and
 > earlier setup instructions recorded below. Future integration work requires
 > an agreed approach before implementation; see the roadmap at the end.
@@ -571,3 +571,53 @@ For each proposed integration, agree on:
 
 Until then, focus product work on reliable App notes, custom tabs, Markdown,
 images, keyboard use and note storage/recovery.
+
+## Subtle depth animation — September 9, 2026
+
+- [x] Use 200 ms entrance and explicit dismissal, fading with a 99–100% scale.
+- [x] Ease out on entrance and ease in on exit, with one shared animation progress
+  value for opacity and scale and no layout animation.
+- [x] Release keyboard and pointer input immediately on dismissal; unmap the
+  surface after its exit finishes.
+- [x] Cancel old transitions on reopening; keep geometry/lifecycle hides immediate.
+- [x] Retain the existing reduced-motion preference without adding a settings control.
+- [x] Native verification covers intermediate frames, typing during dismissal,
+  rapid reopening, source resize and reduced motion.
+
+## Opening latency — September 9, 2026
+
+- [x] Measure initial and repeated opening to the first rendered animation frame.
+- [x] Warm the notes service when the retained plugin loads, without opening UI.
+- [x] Queue an opening until the service handshake is complete and reconnect after failure.
+- [x] Load bundled App/resource resolver functions once and invoke them directly.
+- [x] Preserve external provider process isolation, timeout and output validation.
+- [x] Keep the 200 ms depth animation unchanged.
+- [x] Verify frame timings, saved-note restoration after service restart, custom
+  tab actions and dismissal/reopening behavior.
+
+## Bare website addresses — September 9, 2026
+
+- [x] Accept common bare domains with optional paths, query strings, fragments
+  and ports; default to HTTPS without changing explicit HTTP/HTTPS URLs.
+- [x] Reuse the existing HTTPS tab/note identity rather than create duplicates.
+- [x] Keep absolute file/folder handling and update the Add tab placeholder.
+- [x] Verify domain normalization, validation and native Enter submission.
+
+URLs/paths are resource identities and Open source destinations. They do not
+track the source app or import/edit its content; note files stay in the collection.
+
+## Named notes under apps — September 9, 2026
+
+- [x] Replace URL/file/folder entry with a plain Name field; retain Ctrl+T and Enter.
+- [x] Scope named-note identity to the app plus normalized name; same names in
+  different apps refer to separate notes. Names are 1–120 characters.
+- [x] Remove URL/path interpretation, resource providers, locator captions and Open source.
+- [x] Preserve remove/re-add restoration and remember the selected note by key.
+- [x] Convert legacy custom tabs while preserving content/images and note IDs where
+  possible; split formerly shared notes into independent app copies. Migration
+  retries after partial failure without overwriting completed work.
+- [x] Verify naming, app isolation, retained images, interrupted migration and native tab flow.
+
+Names represent notes, not operating-system folders. Physical note storage remains
+unchanged. The existing source's tab map had no active custom tabs at the time
+of this update; App notes and older All notes entries remain untouched.
