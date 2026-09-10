@@ -45,7 +45,7 @@ use the small experimental registry described in [extensions.md](extensions.md).
 - [x] Add portable automated checks for future repository CI.
 - [ ] User laptop acceptance: fresh installation, normal use, restart, removal/reinstall.
 - [ ] Address laptop findings and record the actual tested environment.
-- [ ] Verify the public GitHub installation, loaded commands and Git update path.
+- [x] Verify the public GitHub installation, loaded commands and Git update path.
 - [ ] Prepare release notes after laptop feedback.
 - [ ] Tag the accepted release and submit the marketplace listing.
 

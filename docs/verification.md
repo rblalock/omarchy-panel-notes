@@ -50,6 +50,7 @@ Evidence directories are local `.test-output/` artifacts, excluded from packages
 | Complete desktop journey, external editing, three monitors and recovery | `native-1789008777` | 23 assertions passed |
 | Opening, service restart, five consecutive draft reconnects | `opening-1789008789` | 7 assertions passed; 71 ms initial first frame, 61 ms warm median |
 | Desktop journey including Ctrl+E from Settings/search fields | `native-1789010069` | 22 assertions passed; clipboard image case skipped because clipboard was not suitable for safe restoration |
+| Actual Git-installed panel, public toggle, help, Settings, search, preview and Escape | `live-ui-1789010265` | 9 assertions passed |
 
 Opening timings include the native fixture's IPC invocation through a submitted
 frame; they exclude the global shortcut launcher and physical display scanout.
@@ -90,13 +91,23 @@ The installed UI check exposed Qt's text-field Ctrl+E handling in Settings.
 Settings and search now explicitly return to Notes for that key. The disposable
 native journey above verifies both fields. The installed check also now waits
 for its source workspace animation and verifies panel focus before sending keys.
+Its key chords allow 50 ms between virtual-keyboard modifier changes; sending
+the entire chord without pauses intermittently missed shortcuts in the installed shell.
+
+Stock `omarchy plugin update` fast-forwarded the public installation from
+`12b2cb7` to `3c1dfb5`, followed by the documented shell restart. Installed HEAD
+matched GitHub, interface `.17` loaded from the installed directory, and the nine
+installed UI checks passed. Optional shortcut setup and `panel-notes doctor`
+passed. All 32 pre-existing collection files retained their SHA-256 hashes across
+removal, reinstallation and updating. [CI for the update](https://github.com/rblalock/omarchy-panel-notes/actions/runs/34432647189)
+also passed.
 
 ## Remaining acceptance
 
 The [laptop test](laptop-test.md) covers installation with standard Omarchy commands,
 real machine defaults, reboot, scaling, optional Omawrite, and remove/reinstall.
-A public Git forward-update and hosted CI run remain pending. Do not count local
-source checks as evidence of those paths.
+Public Git installation/forward-update and hosted CI have passed on this desktop.
+The separate laptop, reboot and physical display tests remain pending.
 
 Current native environment: Omarchy 4.0.3-1, Quickshell 0.3.1-1,
 Hyprland 0.56.2-2, Qt 6.11.2. Desktop outputs include scale 1, scale 1.6,

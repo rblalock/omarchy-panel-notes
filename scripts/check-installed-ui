@@ -24,7 +24,7 @@ def wait(fn,message):
   value=fn()
   if value:return value
   time.sleep(.1)
- raise AssertionError(message)
+ raise AssertionError(message+': '+json.dumps(state()))
 try:
  assert not state()['opened'], 'Close notes before running the live UI check'
  dispatch('focus',workspace='name:panel-notes-ui-'+str(int(time.time())))
@@ -45,7 +45,10 @@ try:
  run(['grim','-g',f"{source['at'][0]},{source['at'][1]} {source['size'][0]}x{source['size'][1]}",str(evidence/'panel.png')])
  def key(args,predicate,message):
   assert state()['opened'] and state()['focused'],'Panel lost focus; stopping input: '+json.dumps(state())
-  run(['wtype',*args]);wait(predicate,message);results.append(message)
+  # Allow the compositor to apply each virtual-keyboard modifier update.
+  paced=[]
+  for offset in range(0,len(args),2): paced.extend(['-s','50',*args[offset:offset+2]])
+  run(['wtype',*paced,'-s','50']);time.sleep(.15);wait(predicate,message);results.append(message)
  key(['-k','F1'],lambda:state()['page']=='shortcuts','F1 opens keyboard shortcut guide')
  run(['grim','-g',f"{source['at'][0]},{source['at'][1]} {source['size'][0]}x{source['size'][1]}",str(evidence/'shortcuts.png')])
  key(['-M','ctrl','-k','comma','-m','ctrl'],lambda:state()['page']=='settings','Ctrl+, opens Settings')
