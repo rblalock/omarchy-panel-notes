@@ -1,6 +1,6 @@
 # Candidate verification
 
-Target: Panel Notes 0.1.0, interface `2026-09-09.17`. Public installation uses
+Target: Panel Notes 0.1.0, interface `2026-09-09.18`. Public installation uses
 the GitHub repository. Laptop acceptance and marketplace listing remain pending.
 
 ## Reviewed code and release preparation

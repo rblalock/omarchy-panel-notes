@@ -53,7 +53,7 @@ and a `panel-notes` command. It backs up changed keybindings, refuses conflicts,
 and is safe to repeat:
 
 ```sh
-~/.config/omarchy/plugins/io.github.rblalock.panel-notes/scripts/setup
+~/.config/omarchy/plugins/rblalock.panel-notes/scripts/setup
 ```
 
 ### App launcher
@@ -62,8 +62,25 @@ Optionally make **Panel Notes** available in the app launcher. It opens All note
 
 ```sh
 mkdir -p ~/.local/share/applications
-cp ~/.config/omarchy/plugins/io.github.rblalock.panel-notes/io.github.rblalock.panel-notes.desktop ~/.local/share/applications/
+cp ~/.config/omarchy/plugins/rblalock.panel-notes/rblalock.panel-notes.desktop ~/.local/share/applications/
 ```
+
+### Moving from the initial plugin ID
+
+If you installed the initial `io.github.rblalock.panel-notes` version, wait for
+**Saved**, then remove that installation before installing the renamed plugin.
+Run this before updating the old checkout:
+
+```sh
+~/.config/omarchy/plugins/io.github.rblalock.panel-notes/scripts/remove
+omarchy plugin add https://github.com/rblalock/omarchy-panel-notes.git --enable
+omarchy restart shell
+```
+
+Your notes, tab names, and collection settings are retained. Run the optional
+shortcut setup again if you used it. If you installed the old desktop launcher,
+remove `~/.local/share/applications/io.github.rblalock.panel-notes.desktop` and
+copy the renamed launcher using the instructions above.
 
 ### Commands
 
@@ -145,7 +162,7 @@ copy in that state directory. Removal keeps all notes and state.
 Wait for **Saved** and close the panel before updating:
 
 ```sh
-omarchy plugin update io.github.rblalock.panel-notes
+omarchy plugin update rblalock.panel-notes
 omarchy restart shell
 ```
 
@@ -153,9 +170,9 @@ Restarting the shell ensures that the updated QML loads. The backend detects its
 code changes when it starts. Normal plugin lifecycle commands are:
 
 ```sh
-omarchy plugin disable io.github.rblalock.panel-notes
-omarchy plugin enable io.github.rblalock.panel-notes
-omarchy plugin remove io.github.rblalock.panel-notes
+omarchy plugin disable rblalock.panel-notes
+omarchy plugin enable rblalock.panel-notes
+omarchy plugin remove rblalock.panel-notes
 ```
 
 Removing the plugin preserves notes, images, tab names and recovery drafts.
@@ -163,14 +180,14 @@ The backend exits after about 10 seconds without a connected panel.
 Remove any manually added keybinding and optional desktop launcher yourself:
 
 ```sh
-rm -f ~/.local/share/applications/io.github.rblalock.panel-notes.desktop
+rm -f ~/.local/share/applications/rblalock.panel-notes.desktop
 ```
 
 If you used `scripts/setup`, use the removal helper **before removing the plugin**
 to also clean up its managed shortcut and `panel-notes` command:
 
 ```sh
-~/.config/omarchy/plugins/io.github.rblalock.panel-notes/scripts/remove
+~/.config/omarchy/plugins/rblalock.panel-notes/scripts/remove
 ```
 
 This helper waits for saving to finish and calls `omarchy plugin remove`.
@@ -182,7 +199,7 @@ Inspect the running plugin with `omarchy-shell panel-notes inspect`. For a
 readable dependency and runtime report:
 
 ```sh
-~/.config/omarchy/plugins/io.github.rblalock.panel-notes/panel-notes doctor
+~/.config/omarchy/plugins/rblalock.panel-notes/panel-notes doctor
 ```
 
 If installation briefly reports `omarchy-shell is not responding`, wait a few

@@ -55,8 +55,8 @@ Item {
     property string collectionRoot: ""
     property real reveal: 0
     property var snapshotJob: null
-    readonly property string interfaceVersion: "2026-09-09.17"
-    readonly property string pluginId: "io.github.rblalock.panel-notes"
+    readonly property string interfaceVersion: "2026-09-09.18"
+    readonly property string pluginId: "rblalock.panel-notes"
     readonly property var capabilities: note && contentTypes[note.meta.type] && note.meta.formatVersion === contentTypes[note.meta.type].formatVersion ? contentTypes[note.meta.type].capabilities || {} : ({})
     readonly property string executable: decodeURIComponent(Qt.resolvedUrl("panel-notes").toString().replace(/^file:\/\//, ""))
     readonly property var sourceToplevel: sourceWindow ? Hyprland.toplevels.values.filter(function(w) { return "0x" + w.address.replace(/^0x/, "") === sourceWindow.address })[0] : null

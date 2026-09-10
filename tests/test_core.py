@@ -171,7 +171,7 @@ class BackendContracts(unittest.TestCase):
 
     def test_disabled_settings_fallback(self):
         self.backend.settings_path.parent.mkdir(parents=True)
-        self.backend.settings_path.write_text(json.dumps({'plugins':[{'id':'io.github.rblalock.panel-notes','reducedMotion':True}]}))
+        self.backend.settings_path.write_text(json.dumps({'plugins':[{'id':'rblalock.panel-notes','reducedMotion':True}]}))
         self.assertTrue(self.backend.settings()['reducedMotion'])
         self.backend.settings_path.write_text('{"plugins":[]}')
         restarted = Backend(self.base/'runtime')

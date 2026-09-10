@@ -14,14 +14,14 @@ developer checkout or setup helper. For quick access, add the optional binding
 from the README, or run:
 
 ```sh
-~/.config/omarchy/plugins/io.github.rblalock.panel-notes/scripts/setup
+~/.config/omarchy/plugins/rblalock.panel-notes/scripts/setup
 ```
 
 Then use **Super+Alt+N**. Diagnostics:
 
 ```sh
 omarchy-shell panel-notes inspect
-~/.config/omarchy/plugins/io.github.rblalock.panel-notes/panel-notes doctor
+~/.config/omarchy/plugins/rblalock.panel-notes/panel-notes doctor
 ```
 
 ## Try the everyday path
@@ -47,17 +47,17 @@ Use sample data. Notes default to `~/Documents/Panel Notes`.
 Wait for Saved and close the panel. Disable/re-enable:
 
 ```sh
-omarchy plugin disable io.github.rblalock.panel-notes
-omarchy plugin enable io.github.rblalock.panel-notes
+omarchy plugin disable rblalock.panel-notes
+omarchy plugin enable rblalock.panel-notes
 ```
 
 Confirm the notes still open. If you used the setup helper, remove with its companion:
 
 ```sh
-python3 ~/.config/omarchy/plugins/io.github.rblalock.panel-notes/scripts/remove
+python3 ~/.config/omarchy/plugins/rblalock.panel-notes/scripts/remove
 ```
 
-If you did not use setup, use `omarchy plugin remove io.github.rblalock.panel-notes`
+If you did not use setup, use `omarchy plugin remove rblalock.panel-notes`
 and remove your optional manual binding/desktop launcher.
 
 Confirm the note collection remains and the setup-created shortcut/launcher are
@@ -69,14 +69,14 @@ images return.
 Wait for Saved, close notes, then use the standard Git update:
 
 ```sh
-omarchy plugin update io.github.rblalock.panel-notes
+omarchy plugin update rblalock.panel-notes
 omarchy restart shell
 ```
 
 Check the installed revision and runtime:
 
 ```sh
-git -C ~/.config/omarchy/plugins/io.github.rblalock.panel-notes rev-parse --short HEAD
+git -C ~/.config/omarchy/plugins/rblalock.panel-notes rev-parse --short HEAD
 omarchy-shell panel-notes inspect
 ```
 

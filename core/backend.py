@@ -12,7 +12,7 @@ from .registry import Registry
 from .session import snapshot, changed, focus, environment, hypr
 from .storage import Store, atomic
 
-PLUGIN_ID = "io.github.rblalock.panel-notes"
+PLUGIN_ID = "rblalock.panel-notes"
 PROJECT = Path(__file__).resolve().parent.parent
 
 

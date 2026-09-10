@@ -46,7 +46,7 @@ Do not run them on someone else's active notes session.
 
 ```sh
 ./scripts/install
-python3 ~/.config/omarchy/plugins/io.github.rblalock.panel-notes/scripts/setup
+python3 ~/.config/omarchy/plugins/rblalock.panel-notes/scripts/setup
 ```
 
 The development installer stages and validates the current files, preserves the
