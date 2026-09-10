@@ -85,4 +85,7 @@ update should report that the plugin is up to date. A later source commit should
 fast-forward normally without replacing the installation or losing local state.
 
 Report doctor output, the action that failed, expected/observed behavior, and a
-screenshot using sample content. Laptop results are currently pending.
+screenshot using sample content.
+
+For v0.1.0, the user reported successful laptop testing and approved the release.
+Individual checklist results and laptop version details were not supplied.

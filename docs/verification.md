@@ -1,7 +1,7 @@
-# Candidate verification
+# Release verification
 
 Target: Panel Notes 0.1.0, interface `2026-09-09.18`. Public installation uses
-the GitHub repository. Laptop acceptance and marketplace listing remain pending.
+the GitHub repository. The user reported successful laptop testing and approved the first release. Marketplace approval is separate.
 
 ## Reviewed code and release preparation
 
@@ -121,7 +121,9 @@ and the CLI symlink points to the new installation.
 The [laptop test](laptop-test.md) covers installation with standard Omarchy commands,
 real machine defaults, reboot, scaling, optional Omawrite, and remove/reinstall.
 Public Git installation/forward-update and hosted CI have passed on this desktop.
-The separate laptop, reboot and physical display tests remain pending.
+The user reported that the laptop worked well and approved v0.1.0. Exact laptop
+versions and item-by-item results were not supplied; no additional reboot or
+physical display testing is claimed from that report.
 
 Current native environment: Omarchy 4.0.3-1, Quickshell 0.3.1-1,
 Hyprland 0.56.2-2, Qt 6.11.2. Desktop outputs include scale 1, scale 1.6,

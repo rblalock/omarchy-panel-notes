@@ -1,8 +1,8 @@
 # Panel Notes plan
 
-Current target: **0.1.0 public repository for laptop testing**. Installation uses
+Current release: **0.1.0, approved after user laptop testing**. Installation uses
 `omarchy plugin add https://github.com/rblalock/omarchy-panel-notes.git --enable`.
-Marketplace submission and release tagging follow laptop acceptance.
+Publication is tracked in [GitHub releases](https://github.com/rblalock/omarchy-panel-notes/releases). Marketplace approval is separate from release publication.
 
 ## Product requirements
 
@@ -43,14 +43,13 @@ use the small experimental registry described in [extensions.md](extensions.md).
 - [x] Replace stale README claims and separate historical plans from current scope.
 - [x] Provide native IPC commands without required setup and document the public Git install path.
 - [x] Add portable automated checks for future repository CI.
-- [ ] User laptop acceptance: fresh installation, normal use, restart, removal/reinstall.
-- [ ] Address laptop findings and record the actual tested environment.
+- [x] User reported successful laptop testing and approved the first release.
+- [x] No release-blocking laptop findings were reported. Detailed laptop versions and individual checklist results were not supplied.
 - [x] Verify the public GitHub installation, loaded commands and Git update path.
-- [ ] Prepare release notes after laptop feedback.
-- [ ] Tag the accepted release and submit the marketplace listing.
+- [x] Prepare v0.1.0 release notes after laptop feedback.
+- [ ] Marketplace maintainer approval after submission.
 
-The [laptop checklist](laptop-test.md) is the next gate. Public repository availability does not imply passing a second-machine test or
-marketplace acceptance.
+The [laptop checklist](laptop-test.md) remains available for future releases. User acceptance does not imply marketplace approval.
 
 ## Integration roadmap — design before implementation
 
