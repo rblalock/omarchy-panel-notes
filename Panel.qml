@@ -55,7 +55,7 @@ Item {
     property string collectionRoot: ""
     property real reveal: 0
     property var snapshotJob: null
-    readonly property string interfaceVersion: "2026-09-09.18"
+    readonly property string interfaceVersion: "2026-09-10.1"
     readonly property string pluginId: "rblalock.panel-notes"
     readonly property var capabilities: note && contentTypes[note.meta.type] && note.meta.formatVersion === contentTypes[note.meta.type].formatVersion ? contentTypes[note.meta.type].capabilities || {} : ({})
     readonly property string executable: decodeURIComponent(Qt.resolvedUrl("panel-notes").toString().replace(/^file:\/\//, ""))
@@ -643,7 +643,7 @@ Item {
                         readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap
                         color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body
                         background: null
-                        text: "Keyboard shortcuts\n\nSuper+Alt+N   Open / close notes for the focused app\nEscape   Close and return to source\nCtrl+E   Notes / focus editor\nCtrl+Shift+F   Search all notes\nCtrl+,   Settings\nF1   This shortcut guide\n\nCtrl+T   Add a named note tab\nF2   Rename selected tab (or right-click it)\nCtrl+Shift+Delete   Remove selected custom tab (keep notes)\nAlt+1…9   Select scope tab\nCtrl+Tab / Ctrl+Shift+Tab   Next / previous scope\nCtrl+Shift+P   Preview / edit\nCtrl+Shift+S   Snapshot source window\nCtrl+O   Open in Omawrite / reload note\nCtrl+S   Retry saving (normal edits autosave)\nCtrl+R   Retry a blocked save\n\nCtrl+B / Ctrl+I   Bold / italic\nCtrl+V   Paste text or image\nCtrl+Z / Ctrl+Shift+Z   Undo / redo\nTab / Shift+Tab   Move between controls\nSpace / Enter   Activate focused control\n\nAll notes: type to search, Down then arrows to choose, Enter to open. Alt+1…9 recovers the corresponding draft.\n\nSettings\nAlt+M   Move collection\nAlt+U   Use this folder\n"
+                        text: "Keyboard shortcuts\n\nSuper+Alt+E   Open / close notes for the focused app\nEscape   Close and return to source\nCtrl+E   Notes / focus editor\nCtrl+Shift+F   Search all notes\nCtrl+,   Settings\nF1   This shortcut guide\n\nCtrl+T   Add a named note tab\nF2   Rename selected tab (or right-click it)\nCtrl+Shift+Delete   Remove selected custom tab (keep notes)\nAlt+1…9   Select scope tab\nCtrl+Tab / Ctrl+Shift+Tab   Next / previous scope\nCtrl+Shift+P   Preview / edit\nCtrl+Shift+S   Snapshot source window\nCtrl+O   Open in Omawrite / reload note\nCtrl+S   Retry saving (normal edits autosave)\nCtrl+R   Retry a blocked save\n\nCtrl+B / Ctrl+I   Bold / italic\nCtrl+V   Paste text or image\nCtrl+Z / Ctrl+Shift+Z   Undo / redo\nTab / Shift+Tab   Move between controls\nSpace / Enter   Activate focused control\n\nAll notes: type to search, Down then arrows to choose, Enter to open. Alt+1…9 recovers the corresponding draft.\n\nSettings\nAlt+M   Move collection\nAlt+U   Use this folder\n"
                     }
                 }
                 Text { visible: root.failure.length > 0; text: root.failure; color: Color.urgent; wrapMode: Text.Wrap; Layout.fillWidth: true; font.family: Style.font.family; font.pixelSize: Style.font.body }

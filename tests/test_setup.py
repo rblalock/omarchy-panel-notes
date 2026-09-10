@@ -30,17 +30,18 @@ class Setup(unittest.TestCase):
     def test_setup_repeat_remove_retains_personal_config(self):
         setup()
         first = self.bindings.read_text()
-        setup()
+        with patch('core.setup.hypr', return_value=[{'modmask':72, 'key':'E', 'description':'Panel Notes'}]): setup()
         self.assertEqual(first, self.bindings.read_text())
         self.assertEqual(first.count(MARKER), 1)
         self.assertIn(BINDING, first)
+        self.assertIn('SUPER + ALT + E', first)
         remove_shortcut()
         self.assertEqual(self.bindings.read_text().rstrip(), self.original.rstrip())
         self.assertFalse((self.home / '.local/bin/panel-notes').is_symlink())
         self.assertTrue(list((self.home / '.local/state/panel-notes/config-backups').glob('*.lua')))
 
     def test_conflict_and_unowned_launcher_are_untouched(self):
-        with patch('core.setup.hypr', return_value=[{'modmask':72, 'key':'N', 'description':'Other app'}]):
+        with patch('core.setup.hypr', return_value=[{'modmask':72, 'key':'E', 'description':'Other app'}]):
             with self.assertRaisesRegex(RuntimeError, 'already in use'): setup()
         self.assertEqual(self.bindings.read_text(), self.original)
         link = self.home / '.local/bin/panel-notes'
@@ -55,6 +56,11 @@ class Setup(unittest.TestCase):
             with self.assertRaises(RuntimeError): setup()
         self.assertEqual(self.bindings.read_text(), self.original)
         self.bindings.write_text(self.original + MARKER + 'o.bind("SUPER + ALT + N", "Panel Notes", "/old/bin/panel-notes toggle")\n')
+        before = self.bindings.read_text()
+        with patch('core.setup.hypr', return_value=[{'modmask':72, 'key':'E', 'description':'Panel Notes'}]):
+            with self.assertRaisesRegex(RuntimeError, 'already in use'): setup()
+        self.assertEqual(self.bindings.read_text(), before)
         with patch('core.setup.hypr', return_value=[{'modmask':72, 'key':'N', 'description':'Panel Notes'}]): setup()
         self.assertIn(BINDING, self.bindings.read_text())
         self.assertNotIn('/old/bin', self.bindings.read_text())
+        self.assertNotIn('SUPER + ALT + N', self.bindings.read_text())

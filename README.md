@@ -38,7 +38,7 @@ omarchy-shell panel-notes toggle
 
 ### Keyboard shortcut
 
-To set up **Super+Alt+N** and the optional `panel-notes` command:
+To set up **Super+Alt+E** and the optional `panel-notes` command:
 
 ```sh
 ~/.config/omarchy/plugins/rblalock.panel-notes/scripts/setup
@@ -48,7 +48,7 @@ The helper backs up changed keybindings and checks for conflicts. To choose your
 own shortcut instead, add a binding in `~/.config/hypr/bindings.lua`:
 
 ```lua
-o.bind("SUPER + ALT + N", "Panel Notes", "omarchy-shell panel-notes toggle")
+o.bind("SUPER + ALT + E", "Panel Notes", "omarchy-shell panel-notes toggle")
 ```
 
 ### App launcher
@@ -83,7 +83,7 @@ Hover buttons for shortcuts; **F1** opens the full guide.
 
 | Action | Shortcut |
 |---|---|
-| Open / toggle notes (optional binding) | Super+Alt+N |
+| Open / toggle notes (optional binding) | Super+Alt+E |
 | Close and return to source | Escape |
 | Add / rename tab | Ctrl+T / F2 |
 | Remove selected named tab, keep note | Ctrl+Shift+Delete |

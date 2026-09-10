@@ -17,7 +17,7 @@ from the README, or run:
 ~/.config/omarchy/plugins/rblalock.panel-notes/scripts/setup
 ```
 
-Then use **Super+Alt+N**. Diagnostics:
+Then use **Super+Alt+E**. Diagnostics:
 
 ```sh
 omarchy-shell panel-notes inspect

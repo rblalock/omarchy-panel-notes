@@ -38,7 +38,7 @@ try:
  wait(lambda:state()['opened'] and state()['noteId'] and state()['source']['address']==source['address'],'Panel absent')
  time.sleep(.3)
  loaded=state()
- assert loaded['interfaceVersion']=='2026-09-09.18'
+ assert loaded['interfaceVersion']=='2026-09-10.1'
  assert loaded['loadedPath']==(Path.home()/'.config/omarchy/plugins'/PLUGIN_ID/'Panel.qml').as_uri()
  assert 'Snapshot' in loaded['actions'] and 'Preview' in loaded['actions'] and '?' in loaded['actions'],loaded
  results.append('Public panel-notes command opens the installed plugin with Preview, Snapshot and shortcut help')

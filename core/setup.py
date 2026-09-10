@@ -12,7 +12,7 @@ from .storage import atomic
 
 MARKER = '-- Panel Notes shortcut\n'
 COMMAND = 'omarchy-shell panel-notes toggle'
-BINDING = 'o.bind("SUPER + ALT + N", "Panel Notes", ' + json.dumps(COMMAND) + ')\n'
+BINDING = 'o.bind("SUPER + ALT + E", "Panel Notes", ' + json.dumps(COMMAND) + ')\n'
 REQUIRED = ('python3', 'omarchy', 'omarchy-shell', 'qs', 'hyprctl', 'wl-paste')
 
 
@@ -28,7 +28,7 @@ def without_shortcut(text):
     index = 0
     while index < len(lines):
         if (lines[index] == MARKER and index + 1 < len(lines)
-                and lines[index + 1].startswith('o.bind("SUPER + ALT + N", "Panel Notes", ')):
+                and lines[index + 1].startswith(('o.bind("SUPER + ALT + N", "Panel Notes", ', 'o.bind("SUPER + ALT + E", "Panel Notes", '))):
             index += 2
         else:
             out.append(lines[index])
@@ -60,10 +60,10 @@ def setup():
     if not path.is_file(): raise RuntimeError('Expected Omarchy 4 Lua configuration at ' + str(path))
     before = path.read_text()
     clean = without_shortcut(before)
-    owned = before != clean
-    conflicts = [bind for bind in hypr('binds') if bind.get('modmask') == 72 and bind.get('key', '').lower() == 'n'
+    owned = MARKER + 'o.bind("SUPER + ALT + E", "Panel Notes", ' in before
+    conflicts = [bind for bind in hypr('binds') if bind.get('modmask') == 72 and bind.get('key', '').lower() == 'e'
                  and not (owned and bind.get('description') == 'Panel Notes')]
-    if conflicts: raise RuntimeError('Super+Alt+N is already in use. No changes made. Choose a custom shortcut using the README instructions.')
+    if conflicts: raise RuntimeError('Super+Alt+E is already in use. No changes made. Choose a custom shortcut using the README instructions.')
     link = Path.home() / '.local/bin/panel-notes'
     if (link.exists() or link.is_symlink()) and not (link.is_symlink() and link.readlink() == target):
         raise RuntimeError(str(link) + ' already exists and is not our launcher. No changes made.')
@@ -71,7 +71,7 @@ def setup():
     write_bindings(path, before, after, environment())
     link.parent.mkdir(parents=True, exist_ok=True)
     if not link.is_symlink(): link.symlink_to(target)
-    return 'Ready. Focus an app and press Super+Alt+N. Run panel-notes doctor for diagnostics.'
+    return 'Ready. Focus an app and press Super+Alt+E. Run panel-notes doctor for diagnostics.'
 
 
 def remove_shortcut():

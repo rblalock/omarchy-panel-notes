@@ -20,7 +20,7 @@ Hover buttons for shortcuts; **F1** opens the full guide.
 
 | Action | Shortcut |
 |---|---|
-| Open / toggle notes (optional binding) | Super+Alt+N |
+| Open / toggle notes (optional binding) | Super+Alt+E |
 | Close and return to source | Escape |
 | Add / rename tab | Ctrl+T / F2 |
 | Remove selected named tab, keep note | Ctrl+Shift+Delete |
