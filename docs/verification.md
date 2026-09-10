@@ -104,6 +104,20 @@ also passed.
 
 ## Remaining acceptance
 
+### Plugin ID cleanup
+
+Commit `543795e` renamed the plugin to `rblalock.panel-notes`, matching the
+author's other plugins. The old installation was removed with its helper, the
+renamed plugin installed from GitHub, and the shortcut set up against the new path.
+Omarchy's add command timed out after cloning; explicit enable followed by shell
+restart completed installation. The README documents recovery for that case.
+Interface `.18` and the new loaded path were verified by doctor. All nine installed
+UI assertions passed in `live-ui-1789010490`; all 35 existing collection and state
+files retained their hashes. No old ID remains in active shell configuration,
+and the CLI symlink points to the new installation.
+
+### Laptop and hardware
+
 The [laptop test](laptop-test.md) covers installation with standard Omarchy commands,
 real machine defaults, reboot, scaling, optional Omawrite, and remove/reinstall.
 Public Git installation/forward-update and hosted CI have passed on this desktop.

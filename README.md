@@ -203,7 +203,8 @@ readable dependency and runtime report:
 ```
 
 If installation briefly reports `omarchy-shell is not responding`, wait a few
-seconds and try the command again. If controls or the `panel-notes` IPC target
+seconds. If the folder was added but enabling did not finish, run
+`omarchy plugin enable rblalock.panel-notes`. If controls or the `panel-notes` IPC target
 remain missing, run `omarchy restart shell`. Report issues with the doctor output and steps to reproduce
 at [GitHub Issues](https://github.com/rblalock/omarchy-panel-notes/issues).
 
