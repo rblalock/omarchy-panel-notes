@@ -10,6 +10,8 @@ sys.path.insert(0,str(ROOT))
 from core.session import environment
 from core.backend import PLUGIN_ID
 from core.storage import Store
+if '--isolated-session' not in sys.argv:
+    raise SystemExit('This removal test changes global plugin state. Use a disposable desktop with --isolated-session.')
 env=environment()
 installed=Path.home()/'.config/omarchy/plugins'/PLUGIN_ID
 if ROOT==installed: raise SystemExit('Run check-removal from the development checkout.')

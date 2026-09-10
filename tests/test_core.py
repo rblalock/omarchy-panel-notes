@@ -200,6 +200,57 @@ class BackendContracts(unittest.TestCase):
         with patch('core.backend.snapshot', return_value={**self.source, 'app':'different'}):
             self.assertEqual(len(self.backend.dispatch({'op':'open', 'address':'0xabc'})['scopes']), 1)
 
+    def test_unreadable_existing_note_never_creates_empty_replacement(self):
+        scope = {'key':'app:editor', 'kind':'app', 'title':'Editor'}
+        note = self.backend.store.for_scope(scope)
+        Path(note['path']).unlink()
+        with self.assertRaises(OSError): self.backend.store.for_scope(scope)
+        self.assertEqual(len(self.backend.store.directories()), 1)
+
+    def test_rename_retains_identity_images_and_removed_note(self):
+        with patch('core.backend.snapshot', return_value=self.source):
+            scope = self.backend.dispatch({'op':'add-tab', 'name':'Ideas'})['scopes'][-1]
+            note = self.backend.store.for_scope(scope)
+            asset = self.backend.store.import_asset(note['meta']['id'], b'\x89PNG\r\n\x1a\nfixture', 'png')
+            body = 'Keep this thought\n' + asset['markdown']
+            self.backend.store.save(note['meta']['id'], body, note['revision'])
+            renamed = self.backend.dispatch({'op':'rename-tab', 'key':scope['key'], 'name':'Plans'})
+            self.assertEqual(renamed['selectedKey'], scope['key'])
+            retained = self.backend.store.load(note['meta']['id'])
+            self.assertEqual(retained['meta']['title'], 'Plans')
+            self.assertEqual(retained['path'], note['path'])
+            self.assertEqual(retained['text'], body)
+            self.assertTrue((Path(note['path']).parent / asset['path']).exists())
+            restarted = Backend(self.base/'runtime')
+            restarted.dispatch({'op':'remove-tab', 'key':scope['key']})
+            restored = restarted.dispatch({'op':'add-tab', 'name':' plans '})
+            self.assertEqual(restored['selectedKey'], scope['key'])
+            fresh = restarted.dispatch({'op':'add-tab', 'name':'Ideas'})
+            self.assertNotEqual(fresh['selectedKey'], scope['key'])
+            self.assertEqual(restarted.store.for_scope(fresh['scopes'][-1])['text'], '')
+            with self.assertRaisesRegex(ValueError, 'already exists'):
+                restarted.dispatch({'op':'rename-tab', 'key':scope['key'], 'name':'Ideas'})
+            restarted.dispatch({'op':'remove-tab', 'key':fresh['selectedKey']})
+            with self.assertRaisesRegex(ValueError, 'already exists'):
+                restarted.dispatch({'op':'rename-tab', 'key':scope['key'], 'name':'Ideas'})
+            with self.assertRaises(ValueError):
+                restarted.dispatch({'op':'rename-tab', 'key':'app:editor', 'name':'No'})
+
+    def test_rename_metadata_failure_is_reconciled_on_reopen(self):
+        with patch('core.backend.snapshot', return_value=self.source):
+            scope = self.backend.dispatch({'op':'add-tab', 'name':'Ideas'})['scopes'][-1]
+            note = self.backend.store.for_scope(scope)
+            from core.storage import atomic
+            def fail(path, data):
+                if Path(path).name == 'note.json': raise OSError('Disk write failed')
+                return atomic(path, data)
+            with patch('core.storage.atomic', side_effect=fail), self.assertRaises(OSError):
+                self.backend.dispatch({'op':'rename-tab', 'key':scope['key'], 'name':'Plans'})
+            restarted = Backend(self.base/'runtime')
+            reopened = restarted.dispatch({'op':'open', 'address':'0xabc'})
+            self.assertEqual(reopened['scopes'][-1]['label'], 'Plans')
+            self.assertEqual(restarted.store.load(note['meta']['id'])['meta']['title'], 'Plans')
+
     def test_named_tab_validation_and_literal_names(self):
         with patch('core.backend.snapshot', return_value=self.source):
             for invalid in ('', '   ', 'x'*121, 'line\nbreak', None):

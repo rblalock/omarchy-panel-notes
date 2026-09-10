@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
-"""Add Super+Alt+N only when free. Never override an existing shortcut."""
-import json
+"""Compatibility entry point; new installations should use scripts/setup."""
+import runpy
 from pathlib import Path
-import subprocess
-import sys
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-from core.session import environment, hypr
-path = Path.home() / '.config/hypr/bindings.lua'
-existing = path.read_text()
-if '-- Panel Notes shortcut\n' in existing: raise SystemExit('Panel Notes shortcut already present.')
-if any(b.get('modmask') == 72 and b.get('key', '').lower() == 'n' for b in hypr('binds')):
-    raise SystemExit('Super+Alt+N is already bound; no changes made. Choose another key in bindings.lua.')
-path.write_text(existing.rstrip() + '\n\n-- Panel Notes shortcut\no.bind("SUPER + ALT + N", "Panel Notes", "' + str(Path.home() / '.local/bin/panel-notes') + ' toggle")\n')
-env = environment()
-subprocess.run(['hyprctl', 'reload'], env=env, check=True)
-result = subprocess.run(['hyprctl', 'configerrors'], env=env, capture_output=True, text=True, check=True)
-if result.stdout.strip() not in ('', 'ok'):
-    path.write_text(existing)
-    subprocess.run(['hyprctl', 'reload'], env=env, check=True)
-    raise SystemExit('Configuration reported errors; shortcut change reverted: ' + result.stdout)
-print('Super+Alt+N opens Panel Notes for the focused window.')
+runpy.run_path(str(Path(__file__).with_name('setup')), run_name='__main__')

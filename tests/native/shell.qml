@@ -74,6 +74,17 @@ ShellRoot {
         }
         function showAddTab(): void { notes.showAddTab() }
         function addTab(value: string): void { notes.tabInput.text = value; notes.addTab() }
+        function tabBounds(index: string): string {
+            function find(node) {
+                if (node.objectName === "scopeTab" + index) {
+                    var point = node.mapToItem(notes.panelWindow.contentItem, node.width / 2, node.height / 2)
+                    return {x:point.x, y:point.y}
+                }
+                for (var child of node.children || []) { var found = find(child); if (found) return found }
+                return null
+            }
+            return JSON.stringify(find(notes.panelWindow.contentItem))
+        }
         function removeTab(): void { notes.removeTab() }
         function tabs(): string { return JSON.stringify({scopes:notes.scopes, selected:notes.selectedScope, dialog:notes.tabDialog.opened, error:notes.tabError, focus:notes.tabInput.activeFocus}) }
         function settings(): void { notes.showPage("settings") }

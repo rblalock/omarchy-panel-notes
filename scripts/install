@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import tempfile
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from core.session import environment
@@ -16,6 +17,12 @@ from core.backend import PLUGIN_ID
 env = environment()
 env['OMARCHY_SHELL_IPC_TIMEOUT'] = '10s'
 target = Path.home() / '.config/omarchy/plugins' / PLUGIN_ID
+if ROOT == target.resolve():
+    raise SystemExit('Already inside the installed plugin. Run scripts/setup, not the development installer.')
+if (target / '.git').exists():
+    raise SystemExit('This installation is Git-managed. Use: omarchy plugin update ' + PLUGIN_ID)
+from core.setup import check_dependencies
+check_dependencies()
 target.parent.mkdir(parents=True, exist_ok=True)
 # Validate outside the watched plugins tree, then expose one complete directory.
 with tempfile.TemporaryDirectory(prefix='.panel-notes-stage-', dir=target.parent.parent) as temporary:
@@ -45,12 +52,6 @@ for attempt in range(30):
     subprocess.run(['omarchy-shell', 'shell', 'rescanPlugins'], env=env, check=True)
     time.sleep(.1)  # Registry rescan is asynchronous in the running shell.
 else: raise SystemExit(enabled.stderr)
-localbin = Path.home() / '.local/bin'
-localbin.mkdir(parents=True, exist_ok=True)
-link = localbin / 'panel-notes'
-if link.is_symlink(): link.unlink()
-if link.exists(): raise SystemExit('Installed plugin. Existing ~/.local/bin/panel-notes was retained; use ' + str(target / 'panel-notes'))
-link.symlink_to(target / 'panel-notes')
 expected = re.search(r'property string interfaceVersion: "([^"]+)"', (ROOT/'Panel.qml').read_text()).group(1)
 def loaded():
     ready = subprocess.run(['omarchy-shell','shell','call',PLUGIN_ID,'inspect',''],env=env,capture_output=True,text=True)
@@ -68,4 +69,4 @@ else:
         if loaded(): break
         time.sleep(.2)
     else: raise SystemExit('Installed files, but the running panel version does not match. Update verification failed.')
-print('Installed and verified running interface ' + expected + '. Focus a window, then run: panel-notes toggle')
+print('Installed and verified running interface ' + expected + '. Run scripts/setup for the keyboard shortcut and launcher.')

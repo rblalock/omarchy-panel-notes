@@ -3,6 +3,7 @@
 Native Markdown notes for Omarchy: one default note per app, plus named note
 tabs added with +. Notes and tabs persist across app windows and restarts. The same name in
 different apps refers to separate notes.
+Right-click/F2 renames a named tab without changing its note identity or files.
 Removing a custom tab keeps its notes in All notes. The panel stays visible when
 using an adjacent app and hides on source geometry changes.
 

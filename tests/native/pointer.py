@@ -9,16 +9,16 @@ class Pointer:
     def __init__(self):
         self.fd = os.open('/dev/uinput', os.O_WRONLY | os.O_NONBLOCK)
         for kind in (1, 2): fcntl.ioctl(self.fd, 0x40045564, kind)
-        fcntl.ioctl(self.fd, 0x40045565, 272)
+        for button in (272, 273): fcntl.ioctl(self.fd, 0x40045565, button)
         for axis in (0, 1): fcntl.ioctl(self.fd, 0x40045566, axis)
         setup = struct.pack('80sHHHHI', b'Panel Notes acceptance pointer', 3, 1, 1, 1, 0) + bytes(1024)
         os.write(self.fd, setup)
         fcntl.ioctl(self.fd, 0x5501)
         time.sleep(.3)
 
-    def click(self):
+    def click(self, button=272):
         for value in (1, 0):
-            os.write(self.fd, struct.pack('llHHi', 0, 0, 1, 272, value))
+            os.write(self.fd, struct.pack('llHHi', 0, 0, 1, button, value))
             os.write(self.fd, struct.pack('llHHi', 0, 0, 0, 0, 0))
             time.sleep(.06)
 

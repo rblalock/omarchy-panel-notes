@@ -114,16 +114,42 @@ class Store:
                         staged.rename(destination)
                     records.append((destination/'note.json', updated))
 
+    def named_scopes(self, app):
+        return [note['scope'] for note in self.search()['notes']
+                if note['scope'].get('kind') == 'named' and note['scope'].get('app') == app]
+
+    def sync_named_tabs(self, scopes):
+        """Tab definitions own labels. Reconcile metadata after rename or restart.
+
+        Save tab definitions first: if a metadata write fails, reopening retries it.
+        Note IDs, body paths, revisions and assets never change during a rename.
+        """
+        by_key = {scope['key']: scope for scope in scopes}
+        if not by_key: return
+        with self.lock():
+            for path in self.directories():
+                try:
+                    meta = json.loads(path.read_text())
+                    scope = by_key.get(meta['scope']['key'])
+                except (OSError, ValueError, KeyError, TypeError):
+                    continue
+                if scope and (meta['title'] != scope['title'] or meta['scope'].get('label') != scope.get('label')):
+                    self.load(meta['id'])
+                    atomic(path, json.dumps({**meta, 'title':scope['title'], 'scope':scope}, indent=2))
+
     def for_scope(self, scope, content_type="markdown"):
         with self.lock():
             for path in self.directories():
                 try:
                     meta = json.loads(path.read_text())
                     if not isinstance(meta, dict): raise ValueError('Malformed note metadata.')
-                    if meta["scope"]["key"] == scope["key"] and meta.get("type") == content_type:
-                        return self.load(meta["id"])
-                except (OSError, ValueError, KeyError):
+                    matches = meta["scope"]["key"] == scope["key"] and meta.get("type") == content_type
+                except (OSError, ValueError, KeyError, TypeError):
                     continue
+                # A matching note that cannot be read needs an error, not a new
+                # empty note that silently hides the original from its app tab.
+                if matches:
+                    return self.load(meta["id"])
             note_id = uuid.uuid4().hex
             label = re.sub(r"[^\w-]+", "-", scope["title"]).strip("-")[:60] or "note"
             directory = self.root / "notes" / (label + "--" + note_id)

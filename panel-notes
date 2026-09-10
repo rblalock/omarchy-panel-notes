@@ -17,10 +17,14 @@ from core.session import environment
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("toggle", "hide", "library", "ensure", "serve", "shutdown", "status"):
+    for name in ("toggle", "hide", "library", "ensure", "serve", "shutdown", "status", "doctor"):
         sub.add_parser(name)
     rpc = sub.add_parser("rpc", help="Send one JSON request from stdin")
     args = parser.parse_args()
+    if args.command == "doctor":
+        from core.setup import doctor
+        doctor()
+        return
     if args.command == "serve":
         serve()
         return
@@ -31,11 +35,7 @@ def main():
         shutdown()
         return
     if args.command in ("toggle", "hide", "library"):
-        operation = "hide" if args.command == "hide" else "summon"
-        command = ["omarchy-shell", "shell", operation, PLUGIN_ID]
-        if operation == "summon":
-            command.append(json.dumps({"view": "library"} if args.command == "library" else {}))
-        subprocess.run(command, env=environment(), check=True)
+        subprocess.run(["omarchy-shell", "panel-notes", args.command], env=environment(), check=True)
         return
     ensure()
     if args.command == "status":

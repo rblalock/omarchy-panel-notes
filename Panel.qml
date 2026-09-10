@@ -28,6 +28,7 @@ Item {
     property string page: "note"
     property bool tabBusy: false
     property string tabError: ""
+    property string renameTabKey: ""
     property alias tabDialog: addTabDialog
     property alias tabInput: tabName
     readonly property var currentScope: selectedScope >= 0 && selectedScope < scopes.length ? scopes[selectedScope] : null
@@ -45,13 +46,16 @@ Item {
     property var afterSaved: null
     property var pendingOpen: null
     property string socketPath: ""
+    QtObject { id: offlineSocket; property bool connected: false }
+    property var socket: offlineSocket
     property bool serviceReady: false
+    property int reconnectAttempts: 0
     Component.onCompleted: bootstrap.running = true
     property bool observePending: false
     property string collectionRoot: ""
     property real reveal: 0
     property var snapshotJob: null
-    readonly property string interfaceVersion: "2026-09-09.14"
+    readonly property string interfaceVersion: "2026-09-09.16"
     readonly property string pluginId: "io.github.rblalock.panel-notes"
     readonly property var capabilities: note && contentTypes[note.meta.type] && note.meta.formatVersion === contentTypes[note.meta.type].formatVersion ? contentTypes[note.meta.type].capabilities || {} : ({})
     readonly property string executable: decodeURIComponent(Qt.resolvedUrl("panel-notes").toString().replace(/^file:\/\//, ""))
@@ -60,6 +64,15 @@ Item {
     readonly property bool editorFocused: surface.contentItem.Window.window ? surface.contentItem.Window.window.active : false
     property alias editor: editorLoader.item
     property alias panelWindow: surface
+
+    // Public commands work immediately after `omarchy plugin add --enable`.
+    IpcHandler {
+        target: "panel-notes"
+        function toggle(): string { root.open("{}"); return "ok" }
+        function library(): string { root.open(JSON.stringify({view:"library"})); return "ok" }
+        function hide(): string { root.closeAndReturn(); return "ok" }
+        function inspect(): string { return root.inspect() }
+    }
 
     function request(op, args, callback) {
         if (!socket.connected) { failure = "Notes service disconnected. Reopen the panel to reconnect."; return }
@@ -74,6 +87,7 @@ Item {
         if (opened && editorFocused && !payload.address && !payload.view) { closeAndReturn(); return }
         if (!serviceReady) {
             pendingOpen = payload
+            reconnectAttempts = 0
             if (!socket.connected) bootstrap.running = true
             return
         }
@@ -227,19 +241,25 @@ Item {
     }
     function showAddTab() {
         if (!sourceWindow || !sourceWindow.address) return
-        tabError = ""; tabName.text = ""; addTabDialog.open()
+        renameTabKey = ""; tabError = ""; tabName.text = ""; addTabDialog.open()
+    }
+    function showRenameTab(scope) {
+        if (tabBusy || !scope || !scope.customTab) return
+        renameTabKey = scope.key; tabError = ""; tabName.text = scope.label || scope.title
+        addTabDialog.open()
     }
     function applyTabs(result) {
         scopes = result.scopes
         var index = scopes.findIndex(function(scope) { return scope.key === result.selectedKey })
-        showPage("note"); selectScope(index >= 0 ? index : 0)
+        failure = ""
+        showPage("note"); selectScope(index >= 0 ? index : 0, true)
     }
     function addTab() {
         if (tabBusy || !sourceWindow || !tabName.text.trim()) return
-        if (!socket.connected || saveBlocked) { tabError = "Finish saving your note before adding a tab."; return }
+        if (!socket.connected || saveBlocked) { tabError = "Finish saving your note before changing tabs."; return }
         saveThen(function() {
             root.tabBusy = true; root.tabError = ""
-            root.request("add-tab", {address:root.sourceWindow.address, expected:root.sourceWindow, name:tabName.text.trim()}, function(result) {
+            root.request(root.renameTabKey ? "rename-tab" : "add-tab", {address:root.sourceWindow.address, expected:root.sourceWindow, name:tabName.text.trim(), key:root.renameTabKey}, function(result) {
                 root.tabBusy = false; addTabDialog.close(); root.applyTabs(result)
             })
         })
@@ -257,7 +277,7 @@ Item {
     function search(query) { request("search", {query:query}, function(result) { root.notes = result.notes }) }
     function retrySave() {
         if (!note) return
-        if (!socket.connected) { retryPending = true; bootstrap.running = true; return }
+        if (!socket.connected) { retryPending = true; reconnectAttempts = 0; bootstrap.running = true; return }
         retryPending = false
         externalEditing = true
         request("resume", {noteId:note.meta.id, text:body, revision:note.revision}, function(result) {
@@ -293,56 +313,87 @@ Item {
         for (var child of node.children || []) actions = actions.concat(visibleActions(child))
         return actions
     }
-    function inspect() { return JSON.stringify({interfaceVersion:interfaceVersion, loadedPath:Qt.resolvedUrl("Panel.qml").toString(), actions:visibleActions(surface.contentItem), serviceReady:serviceReady, opened:opened, source:sourceWindow, scope:selectedScope, noteId:note ? note.meta.id : null, status:status, failure:failure, pendingSaves:pendingSaves, focused:editorFocused, page:page, preview:preview}) }
+    function inspect() { return JSON.stringify({interfaceVersion:interfaceVersion, loadedPath:Qt.resolvedUrl("Panel.qml").toString(), actions:visibleActions(surface.contentItem), serviceReady:serviceReady, serviceConnected:socket.connected, serviceStarting:bootstrap.running, executable:executable, socketPath:socketPath, opened:opened, source:sourceWindow, scope:selectedScope, noteId:note ? note.meta.id : null, status:status, failure:failure, pendingSaves:pendingSaves, focused:editorFocused, page:page, preview:preview}) }
 
     Process {
         id: bootstrap
+        stderr: StdioCollector { onStreamFinished: if (text.trim()) root.failure = text.trim() }
         command: ["python3", root.executable, "ensure"]
         stdout: StdioCollector {
             onStreamFinished: {
-                try { root.socketPath = JSON.parse(text).socket; socket.connected = true }
+                try {
+                    root.socketPath = JSON.parse(text).socket
+                    // Quickshell 0.3.1 retains a failed QLocalSocket internally.
+                    // Each explicit bootstrap gets a fresh transport instead of
+                    // attempting to reconnect a possibly unusable instance.
+                    var previous = root.socket
+                    root.socket = socketComponent.createObject(root, {path:root.socketPath})
+                    if (previous !== offlineSocket) previous.destroy()
+                    root.socket.connected = true
+                }
                 catch (error) { root.failure = "Could not start the notes service." }
             }
         }
     }
-    Socket {
-        id: socket
-        path: root.socketPath
-        parser: SplitParser {
-            onRead: function(data) {
-                try {
-                    var response = JSON.parse(data), entry = root.callbacks[response.id]
-                    delete root.callbacks[response.id]
-                    if (!response.ok) {
-                        root.failure = response.error
-                        if (entry && entry.op === "hello") socket.connected = false
-                        if (entry && /^(add-tab|remove-tab)$/.test(entry.op)) { root.tabBusy = false; root.tabError = response.error }
-                        if (entry && /^(prepare-capture|import-capture)$/.test(entry.op)) { root.snapshotJob = null; snapshotTimeout.stop() }
-                        if (entry && entry.op === "save") {
-                            root.status = "Not saved"; root.saveBlocked = true
-                            root.pendingSaves = Math.max(0, root.pendingSaves - 1); root.afterSaved = null
-                        }
-                        if (entry && entry.op === "observe") root.observePending = false
-                        if (entry && entry.op === "resume") { root.externalEditing = false; root.status = "Not saved" }
-                    } else if (entry) entry.callback(response.result)
-                } catch (error) { root.failure = "Invalid response from the notes service." }
+    Component {
+        id: socketComponent
+        Socket {
+            id: bridgeSocket
+            onError: {
+                if (root.socket !== bridgeSocket) return
+                // A socket may disappear between ensure's probe and QML connecting.
+                // Retry only an explicit opening/save request, with a bounded budget.
+                if ((root.pendingOpen || root.retryPending) && root.reconnectAttempts < 3) {
+                    socket.connected = false
+                    reconnectDelay.restart()
+                }
+            }
+            parser: SplitParser {
+                onRead: function(data) {
+                    try {
+                        var response = JSON.parse(data), entry = root.callbacks[response.id]
+                        delete root.callbacks[response.id]
+                        if (!response.ok) {
+                            root.failure = response.error
+                            if (entry && entry.op === "hello") socket.connected = false
+                            if (entry && /^(add-tab|rename-tab|remove-tab)$/.test(entry.op)) { root.tabBusy = false; root.tabError = response.error }
+                            if (entry && /^(prepare-capture|import-capture)$/.test(entry.op)) { root.snapshotJob = null; snapshotTimeout.stop() }
+                            if (entry && entry.op === "save") {
+                                root.status = "Not saved"; root.saveBlocked = true
+                                root.pendingSaves = Math.max(0, root.pendingSaves - 1); root.afterSaved = null
+                            }
+                            if (entry && entry.op === "observe") root.observePending = false
+                            if (entry && entry.op === "resume") { root.externalEditing = false; root.status = "Not saved" }
+                        } else if (entry) entry.callback(response.result)
+                    } catch (error) { root.failure = "Invalid response from the notes service." }
+                }
+            }
+            onConnectionStateChanged: {
+                if (root.socket !== bridgeSocket) return
+                if (!connected) root.serviceReady = false
+                if (connected) root.request("hello", {}, function(result) {
+                    root.config = result.settings; root.contentTypes = result.content
+                    root.collectionRoot = result.root; root.recoveries = result.recoveries
+                    root.serviceReady = true; root.reconnectAttempts = 0
+                    if (root.note && (root.needsResume || root.retryPending)) { root.retrySave(); return }
+                    if (root.pendingOpen) { var payload = root.pendingOpen; root.pendingOpen = null; root.openResolved(payload) }
+                })
+                else if (root.note) {
+                    root.tabBusy = false
+                    root.callbacks = ({}); root.pendingSaves = 0; root.afterSaved = null
+                    root.needsResume = true; root.saveBlocked = true; root.observePending = false
+                    root.status = "Connection lost"; root.failure = "Your text is here; retry saving to reconnect."
+                }
             }
         }
-        onConnectionStateChanged: {
-            if (!connected) root.serviceReady = false
-            if (connected) root.request("hello", {}, function(result) {
-                root.config = result.settings; root.contentTypes = result.content
-                root.collectionRoot = result.root; root.recoveries = result.recoveries
-                root.serviceReady = true
-                if (root.note && (root.needsResume || root.retryPending)) { root.retrySave(); return }
-                if (root.pendingOpen) { var payload = root.pendingOpen; root.pendingOpen = null; root.openResolved(payload) }
-            })
-            else if (root.note) {
-                root.tabBusy = false
-                root.callbacks = ({}); root.pendingSaves = 0; root.afterSaved = null
-                root.needsResume = true; root.saveBlocked = true; root.observePending = false
-                root.status = "Connection lost"; root.failure = "Your text is here; retry saving to reconnect."
-            }
+    }
+    Timer {
+        id: reconnectDelay
+        interval: 150
+        onTriggered: {
+            if (socket.connected || !(root.pendingOpen || root.retryPending)) return
+            root.reconnectAttempts++
+            bootstrap.running = true
         }
     }
     Timer { id: focusRelease; interval: 16; onTriggered: { if (!root.opened) return; enterMotion.restart(); if (root.editor) root.editor.focusEditor() } }
@@ -385,6 +436,7 @@ Item {
         Shortcut { sequence: "Ctrl+Tab"; enabled: root.opened && root.page === "note" && !addTabDialog.opened; onActivated: root.cycleScope(1) }
         Shortcut { sequence: "Ctrl+Shift+Tab"; enabled: root.opened && root.page === "note" && !addTabDialog.opened; onActivated: root.cycleScope(-1) }
         Shortcut { sequence: "Ctrl+S"; enabled: root.opened && root.page === "note" && !addTabDialog.opened; onActivated: { if (root.needsResume || root.saveBlocked) root.retrySave() } }
+        Shortcut { sequence: "F2"; enabled: root.opened && root.page === "note" && !addTabDialog.opened && !root.tabBusy; onActivated: root.showRenameTab(root.currentScope) }
         Popup {
             id: addTabDialog
             parent: surface.contentItem
@@ -393,13 +445,13 @@ Item {
             modal: true; focus: true
             padding: Style.space(24)
             closePolicy: root.tabBusy ? Popup.NoAutoClose : Popup.CloseOnEscape
-            onOpened: tabName.forceActiveFocus()
+            onOpened: { tabName.forceActiveFocus(); tabName.selectAll() }
             onClosed: if (root.editor) root.editor.focusEditor()
             background: Rectangle { color: Color.background; radius: Style.cornerRadius; border.width: 1; border.color: Qt.alpha(Color.accent, .5) }
             Overlay.modal: Rectangle { color: Qt.alpha(Color.background, .75) }
             contentItem: ColumnLayout {
                 spacing: Style.space(16)
-                Text { text: "Add tab"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body + 4 }
+                Text { text: root.renameTabKey ? "Rename tab" : "Add tab"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body + 4 }
                 Text { text: "Name"; Layout.fillWidth: true; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
                 TextField {
                     id: tabName
@@ -421,7 +473,7 @@ Item {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
                     Action { text: "Cancel"; enabled: !root.tabBusy; onClicked: addTabDialog.close() }
-                    Action { text: root.tabBusy ? "Adding…" : "Add tab"; selected: true; enabled: !root.tabBusy && tabName.text.trim().length > 0; onClicked: root.addTab() }
+                    Action { text: root.tabBusy ? "Saving…" : root.renameTabKey ? "Rename" : "Add tab"; selected: true; enabled: !root.tabBusy && tabName.text.trim().length > 0; onClicked: root.addTab() }
                 }
             }
         }
@@ -490,11 +542,18 @@ Item {
                             Action {
                                 required property var modelData
                                 required property int index
+                                objectName: "scopeTab" + index
                                 text: modelData.label || modelData.title
                                 shortcut: index < 9 ? "Alt+" + (index + 1) : ""
                                 selected: root.selectedScope === index
                                 width: Math.min(implicitWidth, 280, scopeTabs.width)
+                                tooltip: text + (modelData.customTab ? " · Right-click to rename (F2)" : "")
                                 onClicked: root.selectScope(index, true)
+                                TapHandler {
+                                    acceptedButtons: Qt.RightButton
+                                    enabled: modelData.customTab === true && !root.tabBusy
+                                    onTapped: root.showRenameTab(modelData)
+                                }
                             }
                         }
                         Action { text: "+"; Accessible.name: "Add tab"; tooltip: "Add tab"; shortcut: "Ctrl+T"; enabled: !!root.sourceWindow && !!root.sourceWindow.address && !root.tabBusy; onClicked: root.showAddTab() }
@@ -566,7 +625,7 @@ Item {
                         readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap
                         color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body
                         background: null
-                        text: "Keyboard shortcuts\n\nSuper+Alt+N   Open / close notes for the focused app\nEscape   Close and return to source\nCtrl+E   Notes / focus editor\nCtrl+Shift+F   Search all notes\nCtrl+,   Settings\nF1   This shortcut guide\n\nCtrl+T   Add a named note tab\nCtrl+Shift+Delete   Remove selected custom tab (keep notes)\nAlt+1…9   Select scope tab\nCtrl+Tab / Ctrl+Shift+Tab   Next / previous scope\nCtrl+Shift+P   Preview / edit\nCtrl+Shift+S   Snapshot source window\nCtrl+O   Open in Omawrite / reload note\nCtrl+S   Retry saving (normal edits autosave)\nCtrl+R   Retry a blocked save\n\nCtrl+B / Ctrl+I   Bold / italic\nCtrl+V   Paste text or image\nCtrl+Z / Ctrl+Shift+Z   Undo / redo\nTab / Shift+Tab   Move between controls\nSpace / Enter   Activate focused control\n\nAll notes: type to search, Down then arrows to choose, Enter to open. Alt+1…9 recovers the corresponding draft.\n\nSettings\nAlt+M   Move collection\nAlt+U   Use this folder\n"
+                        text: "Keyboard shortcuts\n\nSuper+Alt+N   Open / close notes for the focused app\nEscape   Close and return to source\nCtrl+E   Notes / focus editor\nCtrl+Shift+F   Search all notes\nCtrl+,   Settings\nF1   This shortcut guide\n\nCtrl+T   Add a named note tab\nF2   Rename selected tab (or right-click it)\nCtrl+Shift+Delete   Remove selected custom tab (keep notes)\nAlt+1…9   Select scope tab\nCtrl+Tab / Ctrl+Shift+Tab   Next / previous scope\nCtrl+Shift+P   Preview / edit\nCtrl+Shift+S   Snapshot source window\nCtrl+O   Open in Omawrite / reload note\nCtrl+S   Retry saving (normal edits autosave)\nCtrl+R   Retry a blocked save\n\nCtrl+B / Ctrl+I   Bold / italic\nCtrl+V   Paste text or image\nCtrl+Z / Ctrl+Shift+Z   Undo / redo\nTab / Shift+Tab   Move between controls\nSpace / Enter   Activate focused control\n\nAll notes: type to search, Down then arrows to choose, Enter to open. Alt+1…9 recovers the corresponding draft.\n\nSettings\nAlt+M   Move collection\nAlt+U   Use this folder\n"
                     }
                 }
                 Text { visible: root.failure.length > 0; text: root.failure; color: Color.urgent; wrapMode: Text.Wrap; Layout.fillWidth: true; font.family: Style.font.family; font.pixelSize: Style.font.body }

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Panel Notes
+Comment=Search your app notes
+Exec=omarchy-shell panel-notes library
+Icon=accessories-text-editor
+Terminal=false
+Categories=Utility;TextEditor;
+Keywords=notes;markdown;

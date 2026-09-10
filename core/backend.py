@@ -6,6 +6,7 @@ import subprocess
 import threading
 import time
 import uuid
+import unicodedata
 
 from .registry import Registry
 from .session import snapshot, changed, focus, environment, hypr
@@ -86,6 +87,7 @@ class Backend:
 
     def resolve_tabs(self, source):
         result = self.registry.resolve(source, {})
+        self.store.sync_named_tabs(self.custom_tabs().get(source['app'], []))
         for tab in self.custom_tabs().get(source['app'], []):
             # Keep one entry per app-owned note identity.
             result['scopes'] = [scope for scope in result['scopes'] if scope['key'] != tab['key']]
@@ -99,15 +101,34 @@ class Backend:
         with self.lock:
             tabs = self.custom_tabs()
             current = tabs.get(source['app'], [])
-            if request['op'] == 'add-tab':
+            if request['op'] in ('add-tab', 'rename-tab'):
                 name = request.get('name', '')
                 if not isinstance(name, str) or not name.strip() or len(name.strip()) > 120 or any(ord(c) < 32 or ord(c) == 127 for c in name):
                     raise ValueError('Enter a name between 1 and 120 characters.')
-                resolved = self.registry.resolve(source, {'name':name})
-                tab = next((scope for scope in resolved['scopes'] if scope['kind'] == 'named'), None)
-                if not tab: raise ValueError('Could not create this note tab.')
-                if not any(item['key'] == tab['key'] for item in current): current = [*current, tab]
-                selected = tab['key']
+                name = unicodedata.normalize('NFC', name.strip())
+                # Labels can change; note keys must survive renames and removal.
+                self.store.sync_named_tabs(current)
+                saved = self.store.named_scopes(source['app'])
+                known = {tab['key']: tab for tab in [*saved, *current]}
+                matching = next((tab for tab in known.values() if tab['title'].casefold() == name.casefold()), None)
+                if request['op'] == 'rename-tab':
+                    key = request.get('key')
+                    tab = next((tab for tab in current if tab['key'] == key), None)
+                    if tab is None: raise ValueError('This tab is no longer available.')
+                    if matching and matching['key'] != key:
+                        raise ValueError('A note with this name already exists in this app. Choose another name.')
+                    current = [{**item, 'title':name, 'label':name} if item['key'] == key else item for item in current]
+                    selected = key
+                else:
+                    tab = matching
+                    if tab is None:
+                        resolved = self.registry.resolve(source, {'name':name})
+                        tab = next((scope for scope in resolved['scopes'] if scope['kind'] == 'named'), None)
+                        if not tab: raise ValueError('Could not create this note tab.')
+                        # An old deterministic key may belong to a renamed note.
+                        if tab['key'] in known: tab = {**tab, 'key':'named:' + uuid.uuid4().hex}
+                    if not any(item['key'] == tab['key'] for item in current): current = [*current, tab]
+                    selected = tab['key']
             else:
                 key = request.get('key')
                 current = [tab for tab in current if tab['key'] != key]
@@ -122,7 +143,7 @@ class Backend:
             return {"settings": {**self.settings(), 'scopeKeys':self.preferences}, "root": str(self.store.root),
                     "content": self.registry.content, "extensionErrors": self.registry.errors,
                     "recoveries": self.store.recoveries()}
-        if op in ("add-tab", "remove-tab"):
+        if op in ("add-tab", "rename-tab", "remove-tab"):
             return self.change_tab(request)
         if op == "open":
             try: source = snapshot(request.get("address"))

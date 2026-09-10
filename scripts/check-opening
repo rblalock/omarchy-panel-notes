@@ -66,6 +66,15 @@ try:
  wait(lambda:opening()['settled'] and state()['panel']['status']=='Saved','Opening after service restart failed')
  check(state()['panel']['noteId']==note_id and state()['text']=='A note survives service restart.','An opening after service shutdown reconnects and restores the same saved note')
 
+ for attempt in range(5):
+  subprocess.run([str(ROOT/'panel-notes'),'shutdown'],env=env,check=True)
+  wait(lambda:state()['panel']['status']=='Connection lost','Disconnect not reported')
+  draft='Draft written during service disconnect ' + str(attempt)
+  ipc('edit',draft)
+  ipc('retrySave')
+  wait(lambda:state()['panel']['status']=='Saved' and state()['text']==draft,'Retry after service shutdown failed')
+  check(state()['panel']['noteId']==note_id,'Retry reconnects and saves draft ' + str(attempt) + ' to the same note')
+
 finally:
  if process:
   try:(evidence/'final-state.json').write_text(json.dumps(state(),indent=2))

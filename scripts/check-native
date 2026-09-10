@@ -88,7 +88,7 @@ def main():
         if not clipboard_types or set(clipboard_types).issubset(text_types):
             original_text = subprocess.run(['wl-paste','--no-newline'],env=env,capture_output=True).stdout
             try:
-                png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aP1sAAAAASUVORK5CYII=')
+                png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==')
                 subprocess.run(['wl-copy','--type','image/png'],input=png,env=env,check=True,timeout=3)
                 subprocess.run(['wtype','-M','ctrl','-k','v','-m','ctrl'],env=env,check=True,timeout=3)
                 wait(lambda:'![Image]' in state()['text'] and state()['panel']['status']=='Saved','Clipboard image paste failed')
@@ -98,6 +98,7 @@ def main():
                 if clipboard_types: subprocess.run(['wl-copy'],input=original_text,env=env,check=True,timeout=3)
                 else: subprocess.run(['wl-copy','--clear'],env=env,check=True,timeout=3)
         def key(*keys):
+            assert state()['panel']['focused'] or hypr('activewindow').get('pid') == process.pid, 'Focus changed; stopping test input'
             subprocess.run(['wtype', *keys], env=env, check=True, timeout=3)
             time.sleep(.15)
         key('-M','ctrl','-M','shift','-k','p','-m','shift','-m','ctrl')
@@ -174,6 +175,9 @@ def main():
         check(True, 'Fullscreen transition hides the panel')
         dispatch('window.fullscreen', mode='fullscreen', action='unset', window='address:' + first['address'])
         ipc('open',first['address']); wait(lambda:state()['panel']['opened'],'Cannot reopen before workspace change')
+        source = windows()['Panel Notes native source']
+        dispatch('cursor.move', x=source['at'][0]+source['size'][0]//2, y=source['at'][1]+source['size'][1]//2)
+        dispatch('focus',window='address:'+first['address'])
         dispatch('focus',workspace='name:panel-notes-away-'+str(os.getpid()))
         wait(lambda:not state()['panel']['opened'],'Invisible workspace did not hide notes')
         check(True,'Leaving the source workspace hides the input surface')

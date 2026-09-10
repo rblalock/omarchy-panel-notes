@@ -17,7 +17,7 @@ process=None;results=[];did_open=False
 def run(args):
  return subprocess.run(args,env=env,capture_output=True,text=True,timeout=15,check=True).stdout.strip()
 def ipc(method,arg=''):return run(['omarchy-shell','shell','call',PLUGIN_ID,method,arg])
-def state():return json.loads(ipc('inspect'))
+def state():return json.loads(run(['omarchy-shell','panel-notes','inspect']))
 def wait(fn,message):
  end=time.monotonic()+8
  while time.monotonic()<end:
@@ -32,14 +32,14 @@ try:
  source=wait(lambda:next((w for w in hypr('clients') if w['pid']==process.pid),None),'Source absent')
  dispatch('focus',window='address:'+source['address'])
  did_open=True
- ipc('open',json.dumps({'address':source['address'],'force':True}))
+ run(['omarchy-shell','panel-notes','toggle'])
  wait(lambda:state()['opened'] and state()['noteId'] and state()['source']['address']==source['address'],'Panel absent')
  time.sleep(.3)
  loaded=state()
- assert loaded['interfaceVersion']=='2026-09-09.14'
+ assert loaded['interfaceVersion']=='2026-09-09.16'
  assert loaded['loadedPath']==(Path.home()/'.config/omarchy/plugins'/PLUGIN_ID/'Panel.qml').as_uri()
  assert 'Snapshot' in loaded['actions'] and 'Preview' in loaded['actions'] and '?' in loaded['actions'],loaded
- results.append('Actual installed panel has Preview, Snapshot and shortcut help')
+ results.append('Public panel-notes command opens the installed plugin with Preview, Snapshot and shortcut help')
  run(['grim','-g',f"{source['at'][0]},{source['at'][1]} {source['size'][0]}x{source['size'][1]}",str(evidence/'panel.png')])
  def key(args,predicate,message):
   assert hypr('activewindow').get('address')==source['address'],'Focus changed; stopping input'
@@ -53,7 +53,7 @@ try:
  key(['-k','Escape'],lambda:not state()['opened'],'Escape closes the actual installed panel')
 finally:
  if did_open:
-  try:ipc('close')
+  try:run(['omarchy-shell','panel-notes','hide'])
   except Exception:pass
  if process:
   process.terminate()
