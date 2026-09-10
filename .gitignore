@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 build/
 .test-output/
+
+# Local design-tool context; never part of the plugin payload.
+/.impeccable.md
