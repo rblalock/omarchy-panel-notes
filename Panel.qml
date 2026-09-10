@@ -55,7 +55,7 @@ Item {
     property string collectionRoot: ""
     property real reveal: 0
     property var snapshotJob: null
-    readonly property string interfaceVersion: "2026-09-09.16"
+    readonly property string interfaceVersion: "2026-09-09.17"
     readonly property string pluginId: "io.github.rblalock.panel-notes"
     readonly property var capabilities: note && contentTypes[note.meta.type] && note.meta.formatVersion === contentTypes[note.meta.type].formatVersion ? contentTypes[note.meta.type].capabilities || {} : ({})
     readonly property string executable: decodeURIComponent(Qt.resolvedUrl("panel-notes").toString().replace(/^file:\/\//, ""))
@@ -580,7 +580,17 @@ Item {
                 ColumnLayout {
                     visible: root.page === "library"
                     Layout.fillWidth: true; Layout.fillHeight: true
-                    TextField { id: searchInput; Layout.fillWidth: true; placeholderText: "Search your notes"; onTextChanged: root.search(text); Keys.onDownPressed: { noteList.forceActiveFocus(); noteList.currentIndex = 0 } onAccepted: if (root.notes.length) root.loadNote(root.notes[0].id) }
+                    TextField {
+                        id: searchInput
+                        Layout.fillWidth: true
+                        placeholderText: "Search your notes"
+                        onTextChanged: root.search(text)
+                        Keys.onPressed: function(event) {
+                            if (event.key === Qt.Key_E && event.modifiers === Qt.ControlModifier) { event.accepted = true; root.showPage("note") }
+                        }
+                        Keys.onDownPressed: { noteList.forceActiveFocus(); noteList.currentIndex = 0 }
+                        onAccepted: if (root.notes.length) root.loadNote(root.notes[0].id)
+                    }
                     ListView {
                         id: noteList
                         keyNavigationEnabled: true
@@ -608,7 +618,15 @@ Item {
                     ColumnLayout {
                     width: parent.width
                     Text { text: "Notes folder"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
-                    TextField { id: folder; Layout.fillWidth: true; text: root.collectionRoot; placeholderText: "/home/you/Documents/Panel Notes" }
+                    TextField {
+                        id: folder
+                        Layout.fillWidth: true
+                        text: root.collectionRoot
+                        placeholderText: "/home/you/Documents/Panel Notes"
+                        Keys.onPressed: function(event) {
+                            if (event.key === Qt.Key_E && event.modifiers === Qt.ControlModifier) { event.accepted = true; root.showPage("note") }
+                        }
+                    }
                     RowLayout {
                         Action { text: "Move collection"; shortcut: "Alt+M"; onClicked: root.saveThen(function() { root.request("collection", {path:folder.text, move:true}, function(value) { root.configure(JSON.stringify(value.settings)); root.collectionRoot = value.root }) }) }
                         Action { text: "Use this folder"; shortcut: "Alt+U"; onClicked: root.saveThen(function() { root.request("collection", {path:folder.text}, function(value) { root.configure(JSON.stringify(value.settings)); root.collectionRoot = value.root; root.note = null; root.body = "" }) }) }

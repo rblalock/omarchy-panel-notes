@@ -31,23 +31,27 @@ try:
  process=subprocess.Popen(['qs','-p',str(ROOT/'tests/native/source.qml')],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  source=wait(lambda:next((w for w in hypr('clients') if w['pid']==process.pid),None),'Source absent')
  dispatch('focus',window='address:'+source['address'])
+ time.sleep(.6)  # Let the new workspace and source finish their compositor animation.
+ source=next(w for w in hypr('clients') if w['pid']==process.pid)
  did_open=True
  run(['omarchy-shell','panel-notes','toggle'])
  wait(lambda:state()['opened'] and state()['noteId'] and state()['source']['address']==source['address'],'Panel absent')
  time.sleep(.3)
  loaded=state()
- assert loaded['interfaceVersion']=='2026-09-09.16'
+ assert loaded['interfaceVersion']=='2026-09-09.17'
  assert loaded['loadedPath']==(Path.home()/'.config/omarchy/plugins'/PLUGIN_ID/'Panel.qml').as_uri()
  assert 'Snapshot' in loaded['actions'] and 'Preview' in loaded['actions'] and '?' in loaded['actions'],loaded
  results.append('Public panel-notes command opens the installed plugin with Preview, Snapshot and shortcut help')
  run(['grim','-g',f"{source['at'][0]},{source['at'][1]} {source['size'][0]}x{source['size'][1]}",str(evidence/'panel.png')])
  def key(args,predicate,message):
-  assert hypr('activewindow').get('address')==source['address'],'Focus changed; stopping input'
+  assert state()['opened'] and state()['focused'],'Panel lost focus; stopping input: '+json.dumps(state())
   run(['wtype',*args]);wait(predicate,message);results.append(message)
  key(['-k','F1'],lambda:state()['page']=='shortcuts','F1 opens keyboard shortcut guide')
  run(['grim','-g',f"{source['at'][0]},{source['at'][1]} {source['size'][0]}x{source['size'][1]}",str(evidence/'shortcuts.png')])
  key(['-M','ctrl','-k','comma','-m','ctrl'],lambda:state()['page']=='settings','Ctrl+, opens Settings')
  key(['-M','ctrl','-k','e','-m','ctrl'],lambda:state()['page']=='note','Ctrl+E returns to notes')
+ key(['-M','ctrl','-M','shift','-k','f','-m','shift','-m','ctrl'],lambda:state()['page']=='library','Ctrl+Shift+F opens All notes')
+ key(['-M','ctrl','-k','e','-m','ctrl'],lambda:state()['page']=='note','Ctrl+E returns from the search field')
  key(['-M','ctrl','-M','shift','-k','p','-m','shift','-m','ctrl'],lambda:state()['preview'],'Ctrl+Shift+P opens preview')
  key(['-M','ctrl','-M','shift','-k','p','-m','shift','-m','ctrl'],lambda:not state()['preview'],'Ctrl+Shift+P returns to editing')
  key(['-k','Escape'],lambda:not state()['opened'],'Escape closes the actual installed panel')

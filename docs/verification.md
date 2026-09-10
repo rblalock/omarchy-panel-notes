@@ -1,6 +1,6 @@
 # Candidate verification
 
-Target: Panel Notes 0.1.0, interface `2026-09-09.16`. Public installation uses
+Target: Panel Notes 0.1.0, interface `2026-09-09.17`. Public installation uses
 the GitHub repository. Laptop acceptance and marketplace listing remain pending.
 
 ## Reviewed code and release preparation
@@ -19,7 +19,7 @@ the GitHub repository. Laptop acceptance and marketplace listing remain pending.
 
 Reviewed the installed `/usr/bin/omarchy-plugin-add`, `omarchy-plugin-update`,
 `omarchy-plugin-remove`, and `omarchy-git-url-check`. Add clones and validates Git
-repositories (including local bundles); update fast-forwards origin HEAD; remove
+repositories; update fast-forwards origin HEAD; remove
 unloads/deletes the plugin. These commands do not execute plugin setup/removal hooks.
 The README therefore documents explicit setup, helper removal, and shell restart
 following an update.
@@ -34,8 +34,9 @@ Official references: [publishing](https://plugins.omarchy.org/publish.html),
   reload/idle shutdown, and setup conflict/rollback/repetition.
 - JavaScript cases for Markdown line breaks, quotes, code, lists, tables and images.
 - QML lint and Omarchy manifest/package validation.
-- CI configuration runs portable Python/JavaScript checks on Python 3.12 and Node 22.
-  The hosted workflow has not run; local Python is 3.14.7.
+- Hosted CI passed on Python 3.12 and Node 22 for initial public commit `12b2cb7`:
+  [GitHub Actions run](https://github.com/rblalock/omarchy-panel-notes/actions/runs/34432377340).
+  Local Python is 3.14.7.
 
 ## Native evidence
 
@@ -48,6 +49,7 @@ Evidence directories are local `.test-output/` artifacts, excluded from packages
 | Entrance/exit frames, focus release, resize and rapid reopening | `motion-1789008012` | 8 assertions passed |
 | Complete desktop journey, external editing, three monitors and recovery | `native-1789008777` | 23 assertions passed |
 | Opening, service restart, five consecutive draft reconnects | `opening-1789008789` | 7 assertions passed; 71 ms initial first frame, 61 ms warm median |
+| Desktop journey including Ctrl+E from Settings/search fields | `native-1789010069` | 22 assertions passed; clipboard image case skipped because clipboard was not suitable for safe restoration |
 
 Opening timings include the native fixture's IPC invocation through a submitted
 frame; they exclude the global shortcut launcher and physical display scanout.
@@ -76,6 +78,18 @@ launcher are optional. Development copy installation remains separate.
 The earlier transfer-bundle approach was rejected and removed. The acceptance
 path is `omarchy plugin add https://github.com/rblalock/omarchy-panel-notes.git --enable`,
 followed by the same commands documented in the README.
+
+Commit `12b2cb7` was installed from that public HTTPS Git URL with stock Omarchy
+commands. The previous development copy was backed up by stock removal. Its
+cached interface required a shell restart. A second remove, shell restart while
+absent, and public add verified loading without restarting after installation.
+Enable briefly reported an IPC timeout; the new target became available after
+startup settled. README troubleshooting covers this observed delay.
+
+The installed UI check exposed Qt's text-field Ctrl+E handling in Settings.
+Settings and search now explicitly return to Notes for that key. The disposable
+native journey above verifies both fields. The installed check also now waits
+for its source workspace animation and verifies panel focus before sending keys.
 
 ## Remaining acceptance
 

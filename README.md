@@ -32,7 +32,8 @@ Omawrite is optional; Node, `grim`, and `wtype` are only needed for development 
 omarchy plugin add https://github.com/rblalock/omarchy-panel-notes.git --enable
 ```
 
-The plugin is ready after installation. Focus an app, then open its notes:
+Allow a few seconds for the shell to load the plugin after installation.
+Focus an app, then open its notes:
 
 ```sh
 omarchy-shell panel-notes toggle
@@ -184,8 +185,9 @@ readable dependency and runtime report:
 ~/.config/omarchy/plugins/io.github.rblalock.panel-notes/panel-notes doctor
 ```
 
-If updated controls or the `panel-notes` IPC target are missing, run
-`omarchy restart shell`. Report issues with the doctor output and steps to reproduce
+If installation briefly reports `omarchy-shell is not responding`, wait a few
+seconds and try the command again. If controls or the `panel-notes` IPC target
+remain missing, run `omarchy restart shell`. Report issues with the doctor output and steps to reproduce
 at [GitHub Issues](https://github.com/rblalock/omarchy-panel-notes/issues).
 
 Moving, resizing, closing, or changing the workspace/monitor/fullscreen state of
