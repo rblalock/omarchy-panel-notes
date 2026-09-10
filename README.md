@@ -6,7 +6,9 @@ down, and press **Escape** to return to your work.
 Each app has an **App** note and named tabs for things like Ideas, Research, or
 To-do. Notes are shared across windows of the same app and persist across restarts.
 
-![Panel Notes with an Ideas tab and Markdown preview](preview.png)
+![Panel Notes opening over Ghostty, switching tabs, editing Markdown, and returning to the terminal](demo.gif)
+
+[View screenshot](preview.png)
 
 - Write Markdown with autosave and a formatted preview.
 - Paste images or capture the current window with **Snapshot**.
@@ -74,6 +76,27 @@ Back up the collection and `~/.local/state/panel-notes` to preserve tab organiza
 and recovery drafts too. Removing the plugin keeps your notes.
 
 See the [usage guide](docs/usage.md) for all shortcuts, storage, recovery, and troubleshooting.
+
+## Keyboard shortcuts
+
+Hover buttons for shortcuts; **F1** opens the full guide.
+
+| Action | Shortcut |
+|---|---|
+| Open / toggle notes (optional binding) | Super+Alt+N |
+| Close and return to source | Escape |
+| Add / rename tab | Ctrl+T / F2 |
+| Remove selected named tab, keep note | Ctrl+Shift+Delete |
+| Select tab / next / previous | Alt+1…9 / Ctrl+Tab / Ctrl+Shift+Tab |
+| Focus editor / search all notes | Ctrl+E / Ctrl+Shift+F |
+| Preview / edit | Ctrl+Shift+P |
+| Snapshot source window | Ctrl+Shift+S |
+| Open in Omawrite / reload external edits | Ctrl+O |
+| Settings / help | Ctrl+, / F1 |
+| Bold / italic / paste text or image | Ctrl+B / Ctrl+I / Ctrl+V |
+| Retry saving after an error | Ctrl+S |
+
+In Add/Rename, Enter saves the name and Escape cancels. Normal note edits autosave.
 
 ## Commands
 
