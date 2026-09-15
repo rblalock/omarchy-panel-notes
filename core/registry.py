@@ -2,8 +2,9 @@ import importlib.util
 import json
 from pathlib import Path
 import re
-import subprocess
 import sys
+
+from .process import bounded_output
 
 
 class Registry:
@@ -59,11 +60,10 @@ class Registry:
                 if entry in self.inline:
                     result = self.inline[entry](source, context)
                 else:
-                    run = subprocess.run([sys.executable, '-B', str(Path(__file__).with_name('provider_worker.py')), str(entry)],
-                                         input=json.dumps({'source': source, 'context': context}), text=True,
-                                         capture_output=True, timeout=.5, check=True)
-                    if len(run.stdout) > 131072: raise ValueError('Provider response exceeds 128 KB')
-                    result = json.loads(run.stdout)
+                    output = bounded_output([sys.executable, '-B', str(Path(__file__).with_name('provider_worker.py')), str(entry)],
+                                            input=json.dumps({'source': source, 'context': context}).encode(),
+                                            limit=131072, timeout=.5)
+                    result = json.loads(output)
                 if not isinstance(result, list) or len(result) > 12:
                     raise ValueError("Provider must return at most 12 scopes")
                 for scope in result:

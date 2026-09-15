@@ -9,6 +9,7 @@ from unittest.mock import patch
 from core.storage import Store, digest
 from core.registry import Registry
 from core.backend import Backend, PROJECT
+from core.process import bounded_output
 
 
 class Storage(unittest.TestCase):
@@ -100,7 +101,7 @@ class Contracts(unittest.TestCase):
         self.registry = Registry([PROJECT / 'providers', PROJECT / 'content'])
 
     def test_bundled_providers_do_not_launch_processes(self):
-        with patch('core.registry.subprocess.run', side_effect=AssertionError('Unexpected process')):
+        with patch('core.registry.bounded_output', side_effect=AssertionError('Unexpected process')):
             result = self.registry.resolve(self.source, {'name':'Ideas'})
         self.assertEqual([scope['kind'] for scope in result['scopes']], ['app','named'])
         self.assertEqual(result['errors'], [])
@@ -110,8 +111,7 @@ class Contracts(unittest.TestCase):
         (p / 'extension.json').write_text(json.dumps({'apiVersion':1, 'id':'panel-notes.app', 'kind':'context', 'entry':'provider.py'}))
         (p / 'provider.py').write_text("def resolve(source, context):\n return [{'key':'external:1','kind':'object','title':'External'}]\n")
         registry = Registry([self.base])
-        import subprocess
-        with patch('core.registry.subprocess.run', wraps=subprocess.run) as run:
+        with patch('core.registry.bounded_output', wraps=bounded_output) as run:
             result = registry.resolve(self.source, {})
         self.assertEqual(result['scopes'][0]['key'], 'external:1')
         self.assertEqual(run.call_count, 1)

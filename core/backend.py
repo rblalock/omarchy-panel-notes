@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import threading
 import time
@@ -9,11 +10,13 @@ import uuid
 import unicodedata
 
 from .registry import Registry
+from .process import bounded_output
 from .session import snapshot, changed, focus, environment, hypr
-from .storage import Store, atomic
+from .storage import Store, atomic, MAX_ASSET_BYTES
 
 PLUGIN_ID = "rblalock.panel-notes"
 PROJECT = Path(__file__).resolve().parent.parent
+MAX_CLIPBOARD_TYPES = 16 * 1024
 
 
 class Backend:
@@ -24,6 +27,7 @@ class Backend:
         self.registry = Registry([PROJECT / "providers", PROJECT / "content", extensions])
         self.writers = {}
         self.lock = threading.RLock()
+        self.clipboard_lock = threading.Lock()
         self.recovery = Path(os.environ.get("PANEL_NOTES_RECOVERY", str(Path.home() / ".local/state/panel-notes/recovery")))
         self.settings_cache_path = self.recovery.parent / 'settings.json'
         self.preferences_path = self.recovery.parent / 'preferences.json'
@@ -222,12 +226,19 @@ class Backend:
             subprocess.Popen(command, env=environment(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             return {"path": note["path"]}
         if op == "clipboard-image":
-            types = subprocess.run(["wl-paste", "--list-types"], env=environment(), capture_output=True, timeout=3, check=True).stdout.decode().splitlines()
-            mime = next((x for x in ("image/png", "image/jpeg", "image/webp") if x in types), None)
-            if not mime:
-                return {"isImage": False}
-            result = subprocess.run(["wl-paste", "--no-newline", "--type", mime], env=environment(), capture_output=True, timeout=5, check=True)
-            return {"isImage": True, **self.store.import_asset(request["noteId"], result.stdout, {"image/png":"png","image/jpeg":"jpg","image/webp":"webp"}[mime])}
+            if not self.clipboard_lock.acquire(blocking=False):
+                raise ValueError("An image paste is already in progress.")
+            try:
+                types = bounded_output(["wl-paste", "--list-types"], env=environment(),
+                                       limit=MAX_CLIPBOARD_TYPES, timeout=3).decode().splitlines()
+                mime = next((x for x in ("image/png", "image/jpeg", "image/webp") if x in types), None)
+                if not mime:
+                    return {"isImage": False}
+                data = bounded_output(["wl-paste", "--no-newline", "--type", mime], env=environment(),
+                                      limit=MAX_ASSET_BYTES, timeout=5)
+                return {"isImage": True, **self.store.import_asset(request["noteId"], data, {"image/png":"png","image/jpeg":"jpg","image/webp":"webp"}[mime])}
+            finally:
+                self.clipboard_lock.release()
         if op == "prepare-capture":
             self.store.load(request["noteId"])
             return {"path": str(self.runtime / ("capture-" + uuid.uuid4().hex + ".png"))}
@@ -236,9 +247,14 @@ class Backend:
             if path.parent != self.runtime or not path.name.startswith("capture-") or path.suffix != '.png' or path.is_symlink():
                 raise ValueError("Invalid capture path.")
             try:
-                if path.stat().st_size > 25 * 1024 * 1024:
-                    raise ValueError("Window image exceeds 25 MB.")
-                return self.store.import_asset(request["noteId"], path.read_bytes(), "png", request.get("source"))
+                # Bound the read itself, including a file that grows after stat.
+                # Nonblocking/no-follow prevents a replaced FIFO or link from
+                # hanging the service or redirecting the read.
+                with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as stream:
+                    if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                        raise ValueError("Invalid capture file.")
+                    data = stream.read(MAX_ASSET_BYTES + 1)
+                return self.store.import_asset(request["noteId"], data, "png", request.get("source"))
             finally:
                 path.unlink(missing_ok=True)
         if op == "collection":

@@ -10,6 +10,8 @@ import tempfile
 import time
 import uuid
 
+MAX_ASSET_BYTES = 25 * 1024 * 1024
+
 
 def atomic(path, data):
     path = Path(path)
@@ -196,7 +198,7 @@ class Store:
         return {"notes": sorted(found, key=lambda n: n["updatedAt"], reverse=True), "errors": errors}
 
     def import_asset(self, note_id, data, extension, source=None):
-        if extension not in ("png", "jpg", "webp") or len(data) > 25 * 1024 * 1024:
+        if extension not in ("png", "jpg", "webp") or len(data) > MAX_ASSET_BYTES:
             raise ValueError("Use a PNG, JPEG or WebP image smaller than 25 MB.")
         valid = (extension == "png" and data.startswith(b"\x89PNG\r\n\x1a\n")) or \
                 (extension == "jpg" and data.startswith(b"\xff\xd8\xff")) or \

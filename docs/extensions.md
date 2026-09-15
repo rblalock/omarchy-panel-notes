@@ -25,7 +25,10 @@ contains the temporary source association (`session`, `address`, `pid`, app,
 title, geometry) and an empty context on normal opening. Named tab creation passes the
 explicitly entered name as context. It must return within 500 ms.
 External providers run in a separate short-lived Python process; timed-out or
-malformed providers report an error while other providers continue. The two
+malformed providers report an error while other providers continue. Responses
+are limited to 128 KiB while reading, stderr is discarded, and the process group
+is stopped on overflow, timeout, or completion. This controls resource use at the
+host boundary; it does not sandbox trusted extension code. The two
 shipped App/named-tab resolvers are loaded once and run in-process, selected by
 their exact bundled paths. External package IDs cannot opt into this fast path. Providers
 must not use window addresses/PIDs/titles as durable resource keys.

@@ -1,5 +1,44 @@
 # Release verification
 
+## v0.1.2 clipboard review remediation
+
+The September 15 marketplace review identified a clipboard limit applied only
+after `subprocess.run` had collected the entire producer response. This release
+enforces the limit while reading from the subprocess:
+
+- MIME types: 16 KiB. Image bytes: 25 MiB. One extra byte detects overflow;
+  rejected or incomplete output never reaches asset import.
+- A monotonic deadline covers input/output and process exit, including a producer
+  that closes stdout and then hangs. Stderr goes to `/dev/null`.
+- Every invocation has its own process group. Cleanup uses SIGKILL (including
+  descendants that ignore SIGTERM), closes pipes, and waits for the direct child.
+  Orphaned descendants are terminated and reaped by the system's init/subreaper.
+  The leader remains waitable until signalling, preventing PID reuse in cleanup.
+- Concurrent image-paste requests are rejected while a paste is in progress.
+- The related external-provider path now enforces its existing 128 KiB limit
+  during reading. Snapshot imports read at most 25 MiB + 1 from a regular file
+  opened without following links; FIFOs cannot block an import.
+
+43 Python tests include real endless/high-rate subprocesses, exact limit and
+one-byte overflow, MIME and image overflow through a fake `wl-paste`, timeout,
+stderr flooding, failed/invalid output, descendant cleanup after leader exit,
+snapshot bounds, provider fallback, and normal PNG/JPEG/WebP imports. An endless
+25 MiB producer stays below 30 MiB of traced Python allocations during rejection.
+A real isolated notes service rejects endless clipboard output and then accepts
+an image, saves, and reloads a note over its Unix socket. The real desktop
+clipboard and personal notes are not used by these tests.
+
+The review also covered subprocess calls, capture/file imports, extension trust,
+socket access, Markdown links, and optional installer scope. Executable local
+extensions remain trusted code, not sandboxed; compositor commands and explicit
+setup helpers remain local trusted processes. This is a focused remediation and
+regression review, not a claim of an independent security audit.
+
+JavaScript Markdown checks, QML lint, and staged Omarchy package validation are
+part of `scripts/check`. Marketplace approval remains external.
+
+## Initial release evidence
+
 Target: Panel Notes 0.1.0, interface `2026-09-09.18`. Public installation uses
 the GitHub repository. The user reported successful laptop testing and approved the first release. Marketplace approval is separate.
 
