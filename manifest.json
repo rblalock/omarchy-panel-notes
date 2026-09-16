@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "rblalock.panel-notes",
   "name": "Panel Notes",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "author": "Rick Blalock",
   "license": "MIT",
   "description": "Markdown notes organized into named tabs under each app.",

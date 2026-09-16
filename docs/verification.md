@@ -1,5 +1,23 @@
 # Release verification
 
+## v0.1.3 workflow review remediation
+
+All three remote action references in the repository's only workflow are pinned
+to full 40-character commit SHAs. The upstream GitHub API confirms each commit
+has a verified signature and matches the adjacent release version:
+
+- `actions/checkout`: `11d5960a326750d5838078e36cf38b85af677262` (v4.4.0).
+- `actions/setup-python`: `a26af69be951a213d495a4c3e4e4022e16d87065` (v5.6.0).
+- `actions/setup-node`: `49933ea5288caeca8642d1e84afbd3f7d6820020` (v4.4.0).
+
+These are the same upstream revisions the previous major-version references
+resolved to on September 16. Checkout no longer persists repository credentials;
+workflow permissions remain `contents: read`. There are no additional workflows,
+composite actions, reusable workflow calls, or remote script downloads in CI.
+A regression check scans `.github` YAML action references for mutable refs and
+runs in both the local suite and CI. The suite now contains 44 Python tests.
+The v0.1.2 runtime remediation is unchanged.
+
 ## v0.1.2 clipboard review remediation
 
 The September 15 marketplace review identified a clipboard limit applied only
