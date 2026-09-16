@@ -1,6 +1,6 @@
 # Release verification
 
-## v0.1.3 workflow review remediation
+## v0.1.4 workflow review remediation
 
 All three remote action references in the repository's only workflow are pinned
 to full 40-character commit SHAs. The upstream GitHub API confirms each commit
@@ -17,6 +17,12 @@ composite actions, reusable workflow calls, or remote script downloads in CI.
 A regression check scans `.github` YAML action references for mutable refs and
 runs in both the local suite and CI. The suite now contains 44 Python tests.
 The v0.1.2 runtime remediation is unchanged.
+
+The initial v0.1.3 CI runs exposed an intermittent test-only race: `/proc/PID/stat`
+can return ESRCH when the process exits during a read, as well as ENOENT when it
+has already disappeared. The cleanup test now accepts both as evidence that the
+descendant has exited. v0.1.4 includes that correction without weakening the
+assertion that a running descendant must not survive cleanup.
 
 ## v0.1.2 clipboard review remediation
 

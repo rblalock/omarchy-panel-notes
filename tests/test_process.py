@@ -95,7 +95,7 @@ else:
                     deadline = time.monotonic() + 2
                     while time.monotonic() < deadline:
                         try: state = Path(f'/proc/{child}/stat').read_text().split()[2]
-                        except FileNotFoundError: break
+                        except (FileNotFoundError, ProcessLookupError): break
                         if state == 'Z': break  # Terminated; init owns reaping descendants.
                         time.sleep(.01)
                     else: self.fail('Producer descendant survived cleanup')
